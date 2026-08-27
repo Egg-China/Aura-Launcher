@@ -69,6 +69,8 @@ language-subtag-registry
 /.hmcl.json
 /.hmcl/
 /AuraLauncher/.hmcl/
+/.aura/
+/AuraLauncher/.aura/
 
 # AI
 /.claude/

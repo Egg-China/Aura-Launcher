@@ -89,39 +89,175 @@ public final class Metadata {
     public static final Path CURRENT_DIRECTORY = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
     /// Default Minecraft game directory for the current platform.
     public static final Path MINECRAFT_DIRECTORY = OperatingSystem.getWorkingDirectory("minecraft");
-    /// User-wide HMCL data directory.
+    /// User-wide Aura data directory.
+    public static final Path AURA_USER_HOME;
+    /// Launcher-local Aura data directory.
+    public static final Path AURA_LOCAL_HOME;
+    /// Aura directory containing downloaded runtime dependencies.
+    public static final Path AURA_DEPENDENCIES_DIRECTORY;
+    /// Source-compatible alias for [#AURA_USER_HOME]; this never resolves an HMCL CE live directory.
     public static final Path HMCL_USER_HOME;
-    /// Launcher-local HMCL data directory.
+    /// Source-compatible alias for [#AURA_LOCAL_HOME]; this never resolves an HMCL CE live directory.
     public static final Path HMCL_LOCAL_HOME;
-    /// Directory containing downloaded runtime dependencies.
+    /// Source-compatible alias for [#AURA_DEPENDENCIES_DIRECTORY].
     public static final Path DEPENDENCIES_DIRECTORY;
+    /// User-wide HMCL CE directory inspected only as an optional import source.
+    public static final Path LEGACY_HMCL_CE_USER_HOME;
+    /// Launcher-local HMCL CE directory inspected only as an optional import source.
+    public static final Path LEGACY_HMCL_CE_LOCAL_HOME;
 
     static {
-        String hmclHome = System.getProperty("hmcl.home", System.getenv("HMCL_USER_HOME"));
-        if (StringUtils.isBlank(hmclHome)) {
-            if (OperatingSystem.CURRENT_OS.isLinuxOrBSD()) {
-                String xdgData = System.getenv("XDG_DATA_HOME");
-                if (StringUtils.isNotBlank(xdgData)) {
-                    HMCL_USER_HOME = Path.of(xdgData, "hmcl").toAbsolutePath().normalize();
-                } else {
-                    HMCL_USER_HOME = Path.of(System.getProperty("user.home"), ".local", "share", "hmcl").toAbsolutePath().normalize();
-                }
-            } else {
-                HMCL_USER_HOME = OperatingSystem.getWorkingDirectory("hmcl");
-            }
-        } else {
-            HMCL_USER_HOME = Path.of(hmclHome).toAbsolutePath().normalize();
+        Path userHome = Path.of(System.getProperty("user.home", ".")).toAbsolutePath().normalize();
+        String xdgDataHome = System.getenv("XDG_DATA_HOME");
+        String appData = System.getenv("APPDATA");
+
+        AURA_USER_HOME = resolveAuraUserHome(
+                System.getProperty("aura.home", System.getenv("AURA_HOME")),
+                xdgDataHome,
+                appData,
+                userHome,
+                OperatingSystem.CURRENT_OS
+        );
+        AURA_LOCAL_HOME = resolveAuraLocalHome(
+                System.getProperty("aura.dir", System.getenv("AURA_LOCAL_HOME")),
+                CURRENT_DIRECTORY
+        );
+        AURA_DEPENDENCIES_DIRECTORY = resolveAuraDependenciesHome(
+                System.getProperty("aura.dependencies.dir", System.getenv("AURA_DEPENDENCIES_DIR")),
+                AURA_LOCAL_HOME
+        );
+        HMCL_USER_HOME = AURA_USER_HOME;
+        HMCL_LOCAL_HOME = AURA_LOCAL_HOME;
+        DEPENDENCIES_DIRECTORY = AURA_DEPENDENCIES_DIRECTORY;
+
+        LEGACY_HMCL_CE_USER_HOME = resolveLegacyHmclCeUserHome(
+                System.getProperty("hmcl.home", System.getenv("HMCL_USER_HOME")),
+                xdgDataHome,
+                appData,
+                userHome,
+                OperatingSystem.CURRENT_OS
+        );
+        LEGACY_HMCL_CE_LOCAL_HOME = resolveLegacyHmclCeLocalHome(
+                System.getProperty("hmcl.dir", System.getenv("HMCL_LOCAL_HOME")),
+                CURRENT_DIRECTORY
+        );
+    }
+
+    /// Resolves the Aura user home from an explicit Aura override or platform-specific Aura default.
+    ///
+    /// @param override Aura-specific property or environment override, or `null`
+    /// @param xdgDataHome XDG data root, or `null`
+    /// @param appData Windows roaming application-data root, or `null`
+    /// @param userHome normalized operating-system user home
+    /// @param operatingSystem platform whose default layout should be used
+    /// @return absolute normalized Aura user home
+    static Path resolveAuraUserHome(
+            @Nullable String override,
+            @Nullable String xdgDataHome,
+            @Nullable String appData,
+            Path userHome,
+            OperatingSystem operatingSystem
+    ) {
+        return resolveUserHome(
+                override, xdgDataHome, appData, userHome, operatingSystem, "aura-launcher"
+        );
+    }
+
+    /// Resolves the Aura local home from an Aura-specific override or the `.aura` default.
+    ///
+    /// @param override Aura-specific property or environment override, or `null`
+    /// @param currentDirectory normalized process working directory
+    /// @return absolute normalized Aura local home
+    static Path resolveAuraLocalHome(@Nullable String override, Path currentDirectory) {
+        return resolveLocalHome(override, currentDirectory, ".aura");
+    }
+
+    /// Resolves Aura's dependency directory from an Aura-specific override or its local home.
+    ///
+    /// @param override Aura-specific property or environment override, or `null`
+    /// @param auraLocalHome normalized Aura local home
+    /// @return absolute normalized Aura dependency directory
+    static Path resolveAuraDependenciesHome(@Nullable String override, Path auraLocalHome) {
+        return StringUtils.isNotBlank(override)
+                ? Path.of(override).toAbsolutePath().normalize()
+                : auraLocalHome.resolve("dependencies").toAbsolutePath().normalize();
+    }
+
+    /// Resolves the user-wide HMCL CE directory used only as an import source.
+    ///
+    /// @param override legacy HMCL property or environment override, or `null`
+    /// @param xdgDataHome XDG data root, or `null`
+    /// @param appData Windows roaming application-data root, or `null`
+    /// @param userHome normalized operating-system user home
+    /// @param operatingSystem platform whose legacy default layout should be used
+    /// @return absolute normalized legacy user home
+    static Path resolveLegacyHmclCeUserHome(
+            @Nullable String override,
+            @Nullable String xdgDataHome,
+            @Nullable String appData,
+            Path userHome,
+            OperatingSystem operatingSystem
+    ) {
+        return resolveUserHome(override, xdgDataHome, appData, userHome, operatingSystem, "hmcl");
+    }
+
+    /// Resolves the launcher-local HMCL CE directory used only as an import source.
+    ///
+    /// @param override legacy HMCL property or environment override, or `null`
+    /// @param currentDirectory normalized process working directory
+    /// @return absolute normalized legacy local home
+    static Path resolveLegacyHmclCeLocalHome(@Nullable String override, Path currentDirectory) {
+        return resolveLocalHome(override, currentDirectory, ".hmcl");
+    }
+
+    /// Resolves one product's user-wide data directory without consulting global process state.
+    ///
+    /// @param override explicit product override, or `null`
+    /// @param xdgDataHome XDG data root, or `null`
+    /// @param appData Windows roaming application-data root, or `null`
+    /// @param userHome normalized operating-system user home
+    /// @param operatingSystem platform whose default layout should be used
+    /// @param productDirectory unprefixed product directory name
+    /// @return absolute normalized user-wide data directory
+    private static Path resolveUserHome(
+            @Nullable String override,
+            @Nullable String xdgDataHome,
+            @Nullable String appData,
+            Path userHome,
+            OperatingSystem operatingSystem,
+            String productDirectory
+    ) {
+        if (StringUtils.isNotBlank(override)) {
+            return Path.of(override).toAbsolutePath().normalize();
         }
+        return switch (operatingSystem) {
+            case LINUX, FREEBSD -> StringUtils.isNotBlank(xdgDataHome)
+                    ? Path.of(xdgDataHome, productDirectory).toAbsolutePath().normalize()
+                    : userHome.resolve(Path.of(".local", "share", productDirectory)).toAbsolutePath().normalize();
+            case WINDOWS -> Path.of(
+                    StringUtils.isNotBlank(appData) ? appData : userHome.toString(),
+                    "." + productDirectory
+            ).toAbsolutePath().normalize();
+            case MACOS -> userHome.resolve(Path.of("Library", "Application Support", productDirectory))
+                    .toAbsolutePath().normalize();
+            default -> userHome.resolve(productDirectory).toAbsolutePath().normalize();
+        };
+    }
 
-        String hmclCurrentDir = System.getProperty("hmcl.dir", System.getenv("HMCL_LOCAL_HOME"));
-        HMCL_LOCAL_HOME = StringUtils.isNotBlank(hmclCurrentDir)
-                ? Path.of(hmclCurrentDir).toAbsolutePath().normalize()
-                : CURRENT_DIRECTORY.resolve(".hmcl");
-
-        String hmclDependencies = System.getProperty("hmcl.dependencies.dir", System.getenv("HMCL_DEPENDENCIES_DIR"));
-        DEPENDENCIES_DIRECTORY = StringUtils.isNotBlank(hmclDependencies)
-                ? Path.of(hmclDependencies).toAbsolutePath().normalize()
-                : HMCL_LOCAL_HOME.resolve("dependencies");
+    /// Resolves one product's launcher-local directory from an override or current-directory child.
+    ///
+    /// @param override explicit product override, or `null`
+    /// @param currentDirectory normalized process working directory
+    /// @param defaultDirectory default child directory name
+    /// @return absolute normalized launcher-local directory
+    private static Path resolveLocalHome(
+            @Nullable String override,
+            Path currentDirectory,
+            String defaultDirectory
+    ) {
+        return StringUtils.isNotBlank(override)
+                ? Path.of(override).toAbsolutePath().normalize()
+                : currentDirectory.resolve(defaultDirectory).toAbsolutePath().normalize();
     }
 
     /// Returns whether this build belongs to the stable release channel.

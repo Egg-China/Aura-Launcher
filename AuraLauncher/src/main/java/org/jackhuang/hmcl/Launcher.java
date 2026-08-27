@@ -365,6 +365,7 @@ public final class Launcher extends Application {
 
             Lang.thread(SystemInfo::initialize, "Detection System Information", true);
 
+            offerLegacyHmclCeSettingsImport();
             try {
                 SettingsManager.init();
             } catch (SambaException e) {
@@ -385,6 +386,102 @@ public final class Launcher extends Application {
         } catch (Throwable e) { // Fucking JavaFX will suppress the exception and will break our crash reporter.
             CRASH_REPORTER.uncaughtException(Thread.currentThread(), e);
         }
+    }
+
+    /// Offers one pre-settings-load import when Aura is uninitialized and HMCL CE settings exist.
+    private static void offerLegacyHmclCeSettingsImport() {
+        if (!LegacyHmclCeDataImporter.isAuraUninitialized(
+                Metadata.AURA_USER_HOME, Metadata.AURA_LOCAL_HOME
+        )) {
+            return;
+        }
+
+        Optional<LegacyHmclCeDataImporter.LegacyHomes> detected =
+                LegacyHmclCeDataImporter.detectLegacyHomes();
+        if (detected.isEmpty()) {
+            return;
+        }
+
+        SwingUtils.initLookAndFeel();
+        LegacyHmclCeDataImporter.LegacyHomes selectedHomes = detected.get();
+        while (true) {
+            Object[] options = {
+                    i18n("settings.launcher.hmcl_ce_import.action"),
+                    i18n("settings.launcher.hmcl_ce_import.fresh"),
+                    i18n("settings.launcher.hmcl_ce_import.choose")
+            };
+            int choice = JOptionPane.showOptionDialog(
+                    null,
+                    i18n("settings.launcher.hmcl_ce_import.startup", selectedHomes.localHome()),
+                    i18n("settings.launcher.hmcl_ce_import"),
+                    JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    options,
+                    options[0]
+            );
+            if (choice == 1 || choice == JOptionPane.CLOSED_OPTION) {
+                return;
+            }
+            if (choice == 2) {
+                @Nullable LegacyHmclCeDataImporter.LegacyHomes chosen = chooseLegacyHmclCeHomes();
+                if (chosen == null) {
+                    continue;
+                }
+                selectedHomes = chosen;
+                continue;
+            }
+
+            LegacyHmclCeImportResult result = new LegacyHmclCeDataImporter().importData(
+                    selectedHomes.userHome(),
+                    selectedHomes.localHome(),
+                    Metadata.AURA_USER_HOME,
+                    Metadata.AURA_LOCAL_HOME,
+                    false
+            );
+            if (result.isSuccessful()) {
+                SwingUtils.showInfoDialog(
+                        i18n("settings.launcher.hmcl_ce_import.startup.success"),
+                        i18n("settings.launcher.hmcl_ce_import")
+                );
+            } else {
+                SwingUtils.showErrorDialog(
+                        i18n(
+                                "settings.launcher.hmcl_ce_import.failed",
+                                Objects.requireNonNullElse(result.getFailureMessage(), "Unknown error")
+                        ),
+                        i18n("settings.launcher.hmcl_ce_import")
+                );
+            }
+            return;
+        }
+    }
+
+    /// Lets the user choose an alternate legacy local home before settings initialization.
+    ///
+    /// @return detected legacy homes for the selected directory, or `null` when canceled or invalid
+    private static @Nullable LegacyHmclCeDataImporter.LegacyHomes chooseLegacyHmclCeHomes() {
+        JFileChooser chooser = new JFileChooser(Metadata.LEGACY_HMCL_CE_LOCAL_HOME.toFile());
+        chooser.setDialogTitle(i18n("settings.launcher.hmcl_ce_import.choose"));
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setAcceptAllFileFilterUsed(false);
+        if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) {
+            return null;
+        }
+
+        Optional<LegacyHmclCeDataImporter.LegacyHomes> selected =
+                LegacyHmclCeDataImporter.detectLegacyHomes(
+                        Metadata.LEGACY_HMCL_CE_USER_HOME,
+                        chooser.getSelectedFile().toPath()
+                );
+        if (selected.isEmpty()) {
+            SwingUtils.showErrorDialog(
+                    i18n("settings.launcher.hmcl_ce_import.not_found"),
+                    i18n("settings.launcher.hmcl_ce_import")
+            );
+            return null;
+        }
+        return selected.get();
     }
 
     /// Cross-thread startup result shared between JavaFX `start` and the blocking launcher main thread.

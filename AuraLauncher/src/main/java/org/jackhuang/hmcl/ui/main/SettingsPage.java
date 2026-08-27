@@ -30,7 +30,10 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.stage.DirectoryChooser;
 import org.jackhuang.hmcl.Metadata;
+import org.jackhuang.hmcl.setting.LegacyHmclCeDataImporter;
+import org.jackhuang.hmcl.setting.LegacyHmclCeImportResult;
 import org.jackhuang.hmcl.task.Schedulers;
 import org.jackhuang.hmcl.ui.Controllers;
 import org.jackhuang.hmcl.ui.FXUtils;
@@ -41,12 +44,14 @@ import org.jackhuang.hmcl.upgrade.RemoteVersion;
 import org.jackhuang.hmcl.upgrade.UpdateChannel;
 import org.jackhuang.hmcl.upgrade.UpdateChecker;
 import org.jackhuang.hmcl.upgrade.UpdateHandler;
+import org.jackhuang.hmcl.util.FileSaver;
 import org.jackhuang.hmcl.util.Lang;
 import org.jackhuang.hmcl.util.StringUtils;
 import org.jackhuang.hmcl.util.i18n.I18n;
 import org.jackhuang.hmcl.util.i18n.SupportedLocale;
 import org.jackhuang.hmcl.util.io.FileUtils;
 import org.jackhuang.hmcl.util.io.IOUtils;
+import org.jetbrains.annotations.Nullable;
 import org.tukaani.xz.XZInputStream;
 
 import java.io.IOException;
@@ -58,6 +63,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.zip.GZIPInputStream;
@@ -203,6 +210,14 @@ public final class SettingsPage extends ScrollPane {
                 }
 
                 {
+                    LineButton importHmclCeSettings = LineButton.createNavigationButton();
+                    importHmclCeSettings.setTitle(i18n("settings.launcher.hmcl_ce_import"));
+                    importHmclCeSettings.setSubtitle(i18n("settings.launcher.hmcl_ce_import.categories"));
+                    importHmclCeSettings.setOnAction(event -> chooseAndImportHmclCeSettings());
+                    miscPaneList.getContent().add(importHmclCeSettings);
+                }
+
+                {
                     BorderPane debugPane = new BorderPane();
 
                     Label left = new Label(i18n("settings.launcher.debug"));
@@ -249,6 +264,88 @@ public final class SettingsPage extends ScrollPane {
                 rootPane.getChildren().addAll(ComponentList.createComponentListTitle(i18n("settings.launcher.misc")), miscPaneList);
             }
         }
+    }
+
+    /// Chooses an HMCL CE local home and confirms replacement of the listed Aura setting categories.
+    private void chooseAndImportHmclCeSettings() {
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle(i18n("settings.launcher.hmcl_ce_import.choose"));
+        if (Files.isDirectory(Metadata.LEGACY_HMCL_CE_LOCAL_HOME)) {
+            chooser.setInitialDirectory(Metadata.LEGACY_HMCL_CE_LOCAL_HOME.toFile());
+        }
+        @Nullable Path selectedDirectory = Controllers.showDialog(chooser);
+        if (selectedDirectory == null) {
+            return;
+        }
+
+        Optional<LegacyHmclCeDataImporter.LegacyHomes> detected =
+                LegacyHmclCeDataImporter.detectLegacyHomes(
+                        Metadata.LEGACY_HMCL_CE_USER_HOME, selectedDirectory
+                );
+        if (detected.isEmpty()) {
+            Controllers.dialog(
+                    i18n("settings.launcher.hmcl_ce_import.not_found"),
+                    i18n("settings.launcher.hmcl_ce_import"),
+                    MessageType.ERROR
+            );
+            return;
+        }
+
+        Controllers.confirm(
+                i18n("settings.launcher.hmcl_ce_import.confirm"),
+                i18n("settings.launcher.hmcl_ce_import"),
+                MessageType.WARNING,
+                () -> importHmclCeSettings(detected.get()),
+                null
+        );
+    }
+
+    /// Flushes pending writes, imports with backups, and requires an immediate launcher restart.
+    ///
+    /// @param legacyHomes normalized HMCL CE source homes selected by the user
+    private void importHmclCeSettings(LegacyHmclCeDataImporter.LegacyHomes legacyHomes) {
+        try {
+            FileSaver.waitForAllSaves();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            Controllers.dialog(
+                    i18n("settings.launcher.hmcl_ce_import.failed", exception.toString()),
+                    i18n("settings.launcher.hmcl_ce_import"),
+                    MessageType.ERROR
+            );
+            return;
+        }
+
+        LegacyHmclCeImportResult result = new LegacyHmclCeDataImporter().importData(
+                legacyHomes.userHome(),
+                legacyHomes.localHome(),
+                Metadata.AURA_USER_HOME,
+                Metadata.AURA_LOCAL_HOME,
+                true
+        );
+        if (!result.isSuccessful()) {
+            Controllers.dialog(
+                    i18n(
+                            "settings.launcher.hmcl_ce_import.failed",
+                            Objects.requireNonNullElse(result.getFailureMessage(), "Unknown error")
+                    ),
+                    i18n("settings.launcher.hmcl_ce_import"),
+                    MessageType.ERROR
+            );
+            return;
+        }
+
+        MessageDialogPane pane = new MessageDialogPane(
+                i18n("settings.launcher.hmcl_ce_import.success"),
+                i18n("settings.launcher.hmcl_ce_import"),
+                MessageType.INFO
+        );
+        JFXButton restartButton = new JFXButton(i18n("settings.launcher.hmcl_ce_import.restart"));
+        restartButton.getStyleClass().add("dialog-accept");
+        restartButton.setOnAction(event -> PluginDialogs.restartLauncher());
+        pane.addButton(restartButton);
+        pane.setCancelButton(restartButton);
+        Controllers.dialog(pane);
     }
 
     private void openLogFolder() {

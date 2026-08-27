@@ -18,8 +18,11 @@
 package org.jackhuang.hmcl;
 
 import org.jackhuang.hmcl.plugin.store.PluginStoreManager;
+import org.jackhuang.hmcl.util.platform.OperatingSystem;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -52,5 +55,40 @@ public final class AuraBrandingTest {
         assertEquals("https://raw.githubusercontent.com/Egg-China/Aura-Launcher-Plugin-Store/main/plugins.json",
                 PluginStoreManager.DEFAULT_REGISTRY_URL);
         assertEquals(false, PluginStoreManager.DEFAULT_REGISTRY_ENABLED);
+    }
+
+    /// Resolves Aura live storage only from Aura-specific inputs and Aura defaults.
+    @Test
+    public void resolvesIndependentAuraDataHomes() {
+        Path root = Path.of("build", "metadata-path-test").toAbsolutePath().normalize();
+        Path explicitUser = root.resolve("explicit-user");
+        Path explicitLocal = root.resolve("explicit-local");
+        Path explicitDependencies = root.resolve("explicit-dependencies");
+
+        assertEquals(explicitUser, Metadata.resolveAuraUserHome(
+                explicitUser.toString(), null, null, root, OperatingSystem.WINDOWS
+        ));
+        assertEquals(explicitLocal, Metadata.resolveAuraLocalHome(explicitLocal.toString(), root));
+        assertEquals(explicitDependencies, Metadata.resolveAuraDependenciesHome(
+                explicitDependencies.toString(), explicitLocal
+        ));
+        assertEquals(root.resolve(".aura"), Metadata.resolveAuraLocalHome(null, root));
+        assertEquals(root.resolve(".local/share/aura-launcher"), Metadata.resolveAuraUserHome(
+                null, null, null, root, OperatingSystem.LINUX
+        ));
+    }
+
+    /// Resolves legacy HMCL CE sources independently from Aura's live storage configuration.
+    @Test
+    public void resolvesLegacyHmclCeImportHomesSeparately() {
+        Path root = Path.of("build", "legacy-metadata-path-test").toAbsolutePath().normalize();
+        Path explicitUser = root.resolve("legacy-user");
+        Path explicitLocal = root.resolve("legacy-local");
+
+        assertEquals(explicitUser, Metadata.resolveLegacyHmclCeUserHome(
+                explicitUser.toString(), null, null, root, OperatingSystem.WINDOWS
+        ));
+        assertEquals(explicitLocal, Metadata.resolveLegacyHmclCeLocalHome(explicitLocal.toString(), root));
+        assertEquals(root.resolve(".hmcl"), Metadata.resolveLegacyHmclCeLocalHome(null, root));
     }
 }

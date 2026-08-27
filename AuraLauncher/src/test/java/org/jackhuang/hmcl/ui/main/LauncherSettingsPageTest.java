@@ -18,6 +18,9 @@
 package org.jackhuang.hmcl.ui.main;
 
 import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
 import org.jackhuang.hmcl.FXThreadTestSupport;
@@ -27,6 +30,7 @@ import org.jackhuang.hmcl.setting.SettingsManager;
 import org.jackhuang.hmcl.ui.construct.AdvancedListBox;
 import org.jackhuang.hmcl.ui.construct.AdvancedListItem;
 import org.jackhuang.hmcl.ui.construct.ClassTitle;
+import org.jackhuang.hmcl.ui.construct.ComponentList;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
@@ -34,6 +38,7 @@ import org.junit.jupiter.api.condition.EnabledIf;
 
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.jackhuang.hmcl.util.i18n.I18n.i18n;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -116,6 +121,33 @@ public final class LauncherSettingsPageTest {
         }
     }
 
+    /// Exposes the manual HMCL CE settings import command in the real launcher settings content.
+    @Test
+    public void includeLegacySettingsImportCommand() throws ReflectiveOperationException {
+        Field launcherSettingsField = SettingsManager.class.getDeclaredField("launcherSettings");
+        launcherSettingsField.setAccessible(true);
+        @Nullable Object previousLauncherSettings = launcherSettingsField.get(null);
+        Field gameSettingsPresetsField = SettingsManager.class.getDeclaredField("gameSettingsPresets");
+        gameSettingsPresetsField.setAccessible(true);
+        @Nullable Object previousGameSettingsPresets = gameSettingsPresetsField.get(null);
+
+        try {
+            launcherSettingsField.set(null, new LauncherSettings());
+            gameSettingsPresetsField.set(null, new GameSettingsPresets());
+            FXThreadTestSupport.runOnFxThread(() -> {
+                SettingsPage settingsPage = new SettingsPage();
+
+                assertTrue(labelTexts(settingsPage).contains(i18n("settings.launcher.hmcl_ce_import")));
+                assertTrue(labelTexts(settingsPage).contains(
+                        i18n("settings.launcher.hmcl_ce_import.categories")
+                ));
+            });
+        } finally {
+            gameSettingsPresetsField.set(null, previousGameSettingsPresets);
+            launcherSettingsField.set(null, previousLauncherSettings);
+        }
+    }
+
     /// Reads a private production field from the composed settings page.
     private static <T> T getField(Object owner, String name, Class<T> type) {
         try {
@@ -162,5 +194,37 @@ public final class LauncherSettingsPageTest {
                 .filter(Node::isVisible)
                 .map(AdvancedListItem::getTitle)
                 .toList();
+    }
+
+    /// Returns every label rendered in one JavaFX subtree.
+    private static List<String> labelTexts(Node root) {
+        return labelNodes(root).stream()
+                .filter(Label.class::isInstance)
+                .map(Label.class::cast)
+                .map(Label::getText)
+                .toList();
+    }
+
+    /// Returns one node and all of its JavaFX descendants in display order.
+    private static List<Node> labelNodes(Node root) {
+        if (root instanceof ComponentList componentList) {
+            return Stream.concat(
+                    Stream.of(root),
+                    componentList.getContent().stream().flatMap(node -> labelNodes(node).stream())
+            ).toList();
+        }
+        if (root instanceof ScrollPane scrollPane) {
+            @Nullable Node content = scrollPane.getContent();
+            return content == null
+                    ? List.of(root)
+                    : Stream.concat(Stream.of(root), labelNodes(content).stream()).toList();
+        }
+        if (!(root instanceof Parent parent)) {
+            return List.of(root);
+        }
+        return Stream.concat(
+                Stream.of(root),
+                parent.getChildrenUnmodifiable().stream().flatMap(node -> labelNodes(node).stream())
+        ).toList();
     }
 }
