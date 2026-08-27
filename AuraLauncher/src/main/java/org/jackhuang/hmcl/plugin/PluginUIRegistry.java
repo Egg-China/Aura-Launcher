@@ -53,33 +53,56 @@ public final class PluginUIRegistry {
 
     /// Registers one sidebar item after the owning context has passed its permission check.
     ///
-    /// Package-private visibility prevents ordinary plugin source code from bypassing [PluginContext].
+    /// Callers must use a permission-checked [PluginContext] or Bridge service. The public return value lets the
+    /// Bridge revoke one exact generation-safe contribution without removing other items from the same owner.
     ///
     /// @param pluginId owning plugin ID
     /// @param title displayed sidebar title
     /// @param onAction action invoked when the item is selected
-    static void registerSidebarItem(String pluginId, String title, Runnable onAction) {
+    /// @return exact immutable sidebar contribution
+    public static SidebarItem registerSidebarItem(String pluginId, String title, Runnable onAction) {
         SidebarItem item = new SidebarItem(pluginId, title, onAction, null);
         runOnFxThreadOrNow(() -> SIDEBAR_ITEMS.add(item));
         LOG.info("Plugin " + pluginId + " registered sidebar item: " + title);
+        return item;
     }
 
     /// Registers a page-backed sidebar item for embedded theme layouts.
     ///
-    /// The native HMCL sidebar still invokes the item action, while a theme can
+    /// The native Aura sidebar still invokes the item action, while a theme can
     /// render the page supplier in its own content host without leaving its layout.
-    static void registerSidebarPage(String pluginId, String title, Supplier<? extends Node> pageSupplier) {
+    ///
+    /// @param pluginId owning plugin ID
+    /// @param title displayed sidebar title
+    /// @param pageSupplier lazy page supplier
+    /// @return exact immutable sidebar contribution
+    public static SidebarItem registerSidebarPage(
+            String pluginId,
+            String title,
+            Supplier<? extends Node> pageSupplier
+    ) {
         Supplier<Node> sharedPageSupplier = pageSupplier::get;
         SidebarItem item = new SidebarItem(pluginId, title,
                 () -> Controllers.navigate(sharedPageSupplier.get()), sharedPageSupplier);
         runOnFxThreadOrNow(() -> SIDEBAR_ITEMS.add(item));
         LOG.info("Plugin " + pluginId + " registered sidebar page: " + title);
+        return item;
+    }
+
+    /// Removes one exact sidebar contribution without affecting other contributions from the same owner.
+    ///
+    /// This operation supports generation-safe Bridge handle release. Ordinary plugin lifecycle teardown should
+    /// continue to use [unregisterAll(String)] so every contribution is removed even after partial registration.
+    ///
+    /// @param item exact sidebar contribution returned by a registration method
+    public static void unregisterSidebarItem(SidebarItem item) {
+        runOnFxThreadOrNow(() -> SIDEBAR_ITEMS.remove(item));
     }
 
     /// Removes every sidebar item owned by one plugin.
     ///
     /// @param pluginId owning plugin ID
-    static void unregisterAll(String pluginId) {
+    public static void unregisterAll(String pluginId) {
         runOnFxThreadOrNow(() -> SIDEBAR_ITEMS.removeIf(item -> item.getPluginId().equals(pluginId)));
     }
 
