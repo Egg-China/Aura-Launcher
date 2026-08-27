@@ -979,7 +979,7 @@ public final class PluginManifestTest {
                 baseJson.replace("\"method\": \"launch\"", "\"method\": \"start\""))));
     }
 
-    /// Rejects detached C# package manifests while HMCL CE ships only JVM plugin runtimes.
+    /// Rejects detached C# package manifests while Aura ships only JVM plugin runtimes.
     @Test
     public void rejectDetachedCsharpCompanionManifest() {
         assertManifestRejected(new StringReader("""

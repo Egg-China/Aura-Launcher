@@ -1,4 +1,7 @@
-# HMCL CE Companion IPC
+# Historical HMCL CE Companion IPC reference
+
+> This document is retained as upstream migration history. Aura Launcher does not bundle or start
+> this .NET Companion Host. Future non-JVM support uses optional schema-v5 Runtime Provider plugins.
 
 HMCL CE can optionally start the separate `.NET 10` Companion Host. CE's JVM and the Companion remain independent
 processes and exchange only authenticated local IPC frames; they never share runtime objects.

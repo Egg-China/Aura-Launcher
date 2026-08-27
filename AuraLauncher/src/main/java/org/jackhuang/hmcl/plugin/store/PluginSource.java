@@ -26,7 +26,7 @@ import java.util.Objects;
 /// Immutable persisted configuration for one plugin registry source.
 @NotNullByDefault
 public final class PluginSource {
-    /// Stable identifier reserved for the built-in HMCL CE source.
+    /// Stable identifier reserved for Aura's built-in source slot.
     public static final String OFFICIAL_ID = "official";
 
     /// Stable identifier reserved for the built-in GitHub Topic source.

@@ -1,132 +1,82 @@
-# HMCL CE 插件契约
+# Aura Launcher 插件契约
 
-本文档是启动器与插件之间约定行为的正式契约。`docs/PLUGIN_SYSTEM.md` 介绍插件系统的使用方式；本文定义插件作者可以依赖的保证，以及启动器要求插件必须遵守的规则。两者冲突时以实现为准，并应视为需要修复的文档缺陷。
+本文定义插件作者可以依赖的行为以及 Aura Launcher 对插件包的硬性要求。使用指南见
+[插件系统](./PLUGIN_SYSTEM.md)。文档与实现冲突时以实现为准，并应修正文档。
 
-- **插件作者的义务**：契约中标记为"必须"的条款是加载和执行的硬性前提，违反会导致安装失败或运行时异常。
-- **启动器的义务**：契约中标记为"保证"的条款是插件可以依赖的行为；仅在随附新的 `schemaVersion` 或明确的重大版本公告时才会被破坏。
+## 契约版本
 
-## 1. 契约版本
+- 当前清单版本为 `5`，最低可执行版本也为 `5`。
+- schema v1-v4 只用于管理、禁用、升级或移除旧包，不会安装或执行代码。
+- schema v5 必须显式声明 `runtime` 与 `abi`。
+- `launcherVersion` 必须是有效的版本约束，且当前 Aura 版本必须满足该约束。
 
-- 清单字段 `schemaVersion` 标识插件面向的契约版本。当前版本为 `4`（`PluginManifest.CURRENT_SCHEMA_VERSION`），且 `4` 同时是最低可执行版本（`MIN_EXECUTABLE_SCHEMA_VERSION`）；低于 `4` 的清单只能被读取用于迁移，不能被执行。
-- `schemaVersion >= 4` 的清单必须显式声明 `launcherVersion` 版本约束。启动器只在自身版本满足约束时加载该包。
-- 不破坏现有插件的新增能力（新增可选字段、新增权限枚举值、新增上下文方法）不提升 `schemaVersion`。移除或改变既有语义的提升版本。
+## 打包插件
 
-## 2. 插件包契约
+`.npl` 是 ZIP 容器，根目录必须包含唯一的 `plugin.json`。内置 JVM 插件把 JAR 放入
+`libs/`，并使用完整类名作为 `entrypoint`。
 
-### 2.1 包格式
-
-`.npl` 是 ZIP 容器，必须包含根目录下唯一的 `plugin.json`：
-
-```text
-example-plugin.npl
-├── plugin.json
-└── libs/
-    └── example-plugin.jar
-```
-
-### 2.2 清单字段
-
-| 字段 | 类型 | 要求 |
-| --- | --- | --- |
-| `schemaVersion` | int | 必须为 `4` |
-| `id` | string | 全局唯一插件标识；同一 ID 只能存在一个已安装/已加载实例 |
-| `name` | string | 显示名称，非空 |
-| `version` | string | 包版本，参与依赖解析与授权绑定 |
-| `type` | string | `java` / `kotlin` / `csharp` |
-| `entrypoint` | string | Java/Kotlin：实现 `Plugin` 接口的完整类名；C#：固定为 `companion/extension.json` |
-| `dependencies` | array | 结构化插件依赖（ID + 版本约束） |
-| `permissions` | array | 声明的敏感能力，schema v3 起必填 |
-| `requiredPermissions` | array | 必须获得用户授权才可执行的子集，schema v4 起必填 |
-| `launcherVersion` | string | 启动器版本约束表达式，schema v4 起必填 |
-
-**保证**：
-
-- 清单在安装时被完整校验；校验失败的包不会进入待重启事务。
-- 已验证包的清单是不可变快照。运行期通过 `PluginContext.getManifest()` 与 `Plugin.getManifest()` 返回的清单一致，且与磁盘上 `.npl` 内的清单具有相同的可执行契约字段（含契约哈希）。
-- 声明 Mixin 的 Java/Kotlin 包必须同时声明并要求 `mixin` 权限，否则被拒绝。
-
-## 3. 生命周期契约
-
-### 3.1 回调顺序
-
-```text
-安装/更新 → 待重启事务（当前进程不执行新代码）
-启动后：   onLoad(context) → onEnable()
-禁用：     onDisable()
-卸载：     onDisable() → onUnload() → 关闭类加载器
-```
-
-- `onLoad` 收到不可变的 `PluginContext`；`onEnable` 保证所有已声明的插件依赖均已加载并启用。
-- `onUnload` 是默认空实现的可选回调，在类加载器关闭前调用，插件必须在此时释放资源、停止线程、取消注册。
-
-### 3.2 执行环境
-
-**保证**：每次生命周期回调执行时——
-
-- 在 JavaFX 应用线程上执行；
-- 线程上下文类加载器（TCCL）被设置为该插件的类加载器，`ServiceLoader` 等 TCCL 敏感机制按插件自身类路径工作；
-- 启动器管理入口（安装、卸载、启用状态变更等）对普通插件代码拒绝调用，防止绕过用户确认。
-
-**义务**：
-
-- 回调不得长期阻塞主线程；耗时工作应自行调度到后台线程。
-- 回调抛出的异常会被启动器记录，不会崩溃整个启动器；`onLoad`/`onEnable` 失败的插件不会进入已启用状态，其类加载器会在清理回调后被关闭。
-
-### 3.3 Mixin 插件的额外约束
-
-包含 Mixin 配置的 Java/Kotlin 插件：安装、启用、禁用、更新与卸载全部需要重启才能生效，且在类路径附加前和转换器执行前都会重新校验权限与信任状态。
-
-## 4. 权限契约
-
-### 4.1 权限集合
-
-| 标识 | 含义 |
+| 字段 | 要求 |
 | --- | --- |
-| `filesystem` | 访问插件私有目录之外的文件系统 |
-| `network` | 打开网络连接或与远程服务通信 |
-| `process` | 启动、检查或控制操作系统进程 |
-| `account` | 读取或操作启动器账户与认证状态 |
-| `game-launch` | 参与或修改 Minecraft 启动流程 |
-| `launcher-ui` | 注册或修改启动器界面元素 |
-| `clipboard` | 读写系统剪贴板 |
-| `mixin` | 通过 SpongePowered Mixin 转换启动器类 |
-| `native-code` | 加载原生库或调用本地代码 |
+| `schemaVersion` | 必须为 `5` |
+| `id`, `name`, `version` | 必须存在且通过格式校验 |
+| `type` | `java` 或 `kotlin` |
+| `entrypoint` | 非空；内置 JVM 插件为 `Plugin` 实现类 |
+| `runtime` | 规范化运行时 ID；内置运行时为 `java` |
+| `abi` | 受支持的插件 ABI 代际 |
+| `platforms` | 可选规范化平台目标数组；空数组表示平台无关 |
+| `dependencies` | 结构化插件依赖与版本约束 |
+| `permissions` | 插件可能使用的权限上限 |
+| `requiredPermissions` | 执行前必须授权的权限子集 |
+| `launcherVersion` | Aura 版本约束 |
+| `hooks`, `patches`, `mixins` | 可选高能力声明，受权限与重启规则约束 |
 
-### 4.2 授权模型
+清单在进入安装事务前完整校验。运行时返回不可变清单快照；磁盘包、权限、版本或哈希不
+匹配时，插件不能复用先前的执行资格。
 
-- **declared**：清单 `permissions` 中声明的能力上限。未声明的能力即使被用户允许也不可用。
-- **required**：`requiredPermissions` 中的能力必须全部被接受，该包才会被执行。
-- **granted / effective**：有效权限 = 用户实际授权 ∩ 清单声明。每次调用官方 API 时实时求值，授权变化立即影响后续调用。
-- 受保护操作通过 `PluginContext.requirePermission(...)` 强制检查；未声明抛出 `PluginPermissionException`（原因 `NOT_DECLARED`），已声明但被用户拒绝抛出（原因 `USER_DENIED`）。
+## 执行 JVM 生命周期
 
-**义务**：插件在调用受保护的 SDK 方法前应先用 `isPermissionGranted` 检查，并必须处理 `PluginPermissionException`。
+内置 Java/Kotlin 插件使用以下顺序：
 
-**保证**：用户的授权决定与插件 ID、版本及该 `.npl` 的精确 SHA-256 绑定；替换包内容会使既有授权失效。
+```text
+onLoad(context) → onEnable()
+onDisable()
+onDisable() → onUnload() → 关闭类加载器
+```
 
-## 5. 存储契约
+生命周期回调在 JavaFX 应用线程执行，线程上下文类加载器指向插件类加载器。插件不得
+长期阻塞该线程，并必须在 `onUnload` 中释放线程、监听器和资源。回调异常会禁用对应
+插件，但不应导致整个启动器退出。
 
-- **包目录**（`getPackageDirectory()`）：内容寻址、只读，更新后路径会改变。插件不得持久化此路径，也不得在此写入私有状态。
-- **数据目录**（`getDataDirectory()`）：按插件 ID 分配的私有持久化目录，更新后保持不变；插件的所有持久状态必须写在这里。
-- 安装、卸载、权限与启用状态的持久化均为原子事务；进程中断不会留下半更新的不一致状态。
+## 使用 Runtime Provider
 
-## 6. UI 契约
+外部语言必须通过可选 Runtime Provider 插件接入，不能依赖 Aura 本体捆绑语言运行时。
+Provider 声明其运行时 ID、插件 ABI、Bridge ABI、执行模式、平台和功能集合。普通插件
+可以用 `runtimeProvider` 固定 Provider；未固定时由注册表按完整能力要求确定性选择。
 
-- `registerSidebarItem(title, action)` 与 `registerSidebarPage(title, supplier)` 需要 `launcher-ui` 权限，否则抛出 `PluginPermissionException`。
-- 页面通过惰性 Supplier 创建，由当前主题渲染在自己的内容区域内；注册的条目属于该插件 ID，禁用或卸载时随之注销。
+缺少 Provider 或能力不匹配时，安装和启动会返回明确兼容性结果，不会把外部载荷交给
+内置 JVM 类加载器。Runtime Provider 插件必须使用 `runtime: "java"`；提供原生边界时
+必须声明 `native-code` 权限。
 
-## 7. C# Companion 契约
+## 使用权限与存储
 
-- `type: "csharp"` 的包 `entrypoint` 固定为 `companion/extension.json`；根 `plugin.json` 与嵌套 `extension.json` 的 `id` 和 `version` 必须完全一致。
-- C# 包不能声明 JVM Mixin。
-- 启动器只把验证过的 `companion/` 载荷解包到 `.hmcl/companion/extensions/<id>/`，交给独立 .NET Companion Host 执行；DLL 永远不会进入 JVM 插件类加载器。
+有效权限为用户授权与清单声明的交集。调用受保护 API 时，未声明或被拒绝的权限会抛出
+`PluginPermissionException`。授权与插件 ID、版本和包 SHA-256 绑定。
 
-## 8. 兼容性承诺
+- 包目录只读且内容寻址，插件不得在其中持久化状态。
+- 数据目录按插件 ID 分配，在版本更新后保持稳定。
+- Aura live 数据位于 `.aura` 和 Aura user home；插件不得假定旧 `.hmcl` 路径。
+- 安装、卸载、权限、启用状态和依赖变更使用事务文件，失败时不得留下半发布状态。
 
-以下变更被视为契约破坏，必须伴随 `schemaVersion` 提升：
+## 修改启动器与游戏
 
-- 移除或重命名清单必填字段、权限标识、`Plugin` 生命周期方法；
-- 改变生命周期回调的顺序或线程保证；
-- 使先前合法的清单结构变为非法；
-- 降低 `requirePermission` 之外官方 API 的可用性而不提供替代路径。
+`launcher-ui` 权限允许注册页面和侧栏命令。`game-launch` 允许参与受支持的游戏启动 Hook。
+Mixin、Patch 和原生代码属于高能力边界，必须声明对应权限，并可能要求重启。
 
-新增可选清单字段、新增权限枚举值、新增 `PluginContext` 方法、以及更严格的安全校验不属于破坏性变更。
+插件只能调用实现公开的 Hook/Patch 端点。声明尚未实现的点位、错误方法描述符、越权目标
+或不受支持的平台都会在执行前被拒绝。
+
+## 兼容性承诺
+
+移除必填字段、改变生命周期顺序、重命名权限或改变已有 Hook/Patch 语义属于契约破坏，
+必须提升 schema 或 ABI。新增可选字段、权限、上下文方法以及不改变合法输入含义的严格
+校验可以在 schema v5 内演进。

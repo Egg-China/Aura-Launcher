@@ -125,7 +125,7 @@ public final class PluginTrustVerifier {
         return new PluginTrustVerifier(new PluginTrustRoot(root), clock, revokedSerials, revokedKeyIds);
     }
 
-    /// Loads the production root embedded during the HMCL CE build.
+    /// Loads the production root embedded during the Aura build.
     public static PluginTrustVerifier loadDefault() throws IOException {
         try (InputStream input = PluginTrustVerifier.class.getResourceAsStream("/assets/aura-plugin-root.json")) {
             if (input == null) {

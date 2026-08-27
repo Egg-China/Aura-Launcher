@@ -364,7 +364,7 @@ public final class PluginStorePageTest {
         assertEquals(PluginInstallPlan.Action.UPDATE, PluginStorePage.rootInstallationAction(installed));
     }
 
-    /// Preserves complete HMCL CE version constraints instead of presenting them as minimum versions.
+    /// Preserves complete Aura version constraints instead of presenting them as minimum versions.
     @Test
     public void launcherVersionRequirementKeepsFullConstraint() {
         assertEquals(
@@ -1208,7 +1208,7 @@ public final class PluginStorePageTest {
             String hashDigit
     ) throws IOException {
         PluginStoreItem item = successfulItem(source, pluginId, name);
-        PluginStoreManifest manifest = Objects.requireNonNull(JsonUtils.GSON.fromJson("""
+        PluginStoreManifest manifest = PluginStoreManifest.fromJson(JsonParser.parseString("""
                 {
                   "schemaVersion": 2,
                   "id": "%s",
@@ -1216,15 +1216,18 @@ public final class PluginStorePageTest {
                     "version": "1.0.0",
                     "packageUrl": "https://plugins.example.test/%s.npl",
                     "sha256": "%s",
-                    "pluginApiVersion": 4,
+                    "pluginApiVersion": 5,
                     "permissions": [],
                     "requiredPermissions": [],
                     "launcherVersion": "*",
+                    "runtime": "java",
+                    "abi": 2,
+                    "platforms": [],
                     "dependencies": %s,
                     "size": 1
                   }]
                 }
-                """.formatted(pluginId, pluginId, hashDigit.repeat(64), dependenciesJson), PluginStoreManifest.class));
+                """.formatted(pluginId, pluginId, hashDigit.repeat(64), dependenciesJson)), pluginId);
         manifest.validate(pluginId);
         return new PluginStoreItem(source, item.getRegistry(), item.getSourceManager(), item.getEntry(), manifest);
     }

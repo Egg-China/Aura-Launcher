@@ -30,7 +30,7 @@ import java.util.HexFormat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/// Verifies that every HMCL CE build contains a syntactically valid plugin trust anchor resource.
+/// Verifies that every Aura build contains a syntactically valid plugin trust anchor resource.
 @NotNullByDefault
 public final class PluginTrustRootResourceTest {
     /// Loads the development root and retains unsigned community behavior.

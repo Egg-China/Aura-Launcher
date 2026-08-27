@@ -29,7 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/// Produces the deterministic JSON subset used by HMCL CE plugin trust metadata.
+/// Produces the deterministic JSON subset used by Aura plugin trust metadata.
 ///
 /// Trust schema version one intentionally accepts only integral JSON numbers. This avoids differences between
 /// floating-point serializers while retaining every numeric value currently used by plugin metadata.

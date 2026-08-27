@@ -163,7 +163,7 @@ public final class PluginTrustStatusCache implements AutoCloseable {
             try {
                 refreshIfDue();
             } catch (IOException | RuntimeException exception) {
-                LOG.warning("Unable to refresh HMCL CE plugin trust status; retaining the last valid cache", exception);
+                LOG.warning("Unable to refresh Aura plugin trust status; retaining the last valid cache", exception);
             }
         }, 0, SCHEDULER_POLL_INTERVAL.toMinutes(), TimeUnit.MINUTES);
     }
@@ -710,11 +710,11 @@ public final class PluginTrustStatusCache implements AutoCloseable {
                 try {
                     return new PluginTrustStatusCache(verifier, cache, Clock.systemUTC());
                 } catch (IOException exception) {
-                    LOG.warning("Ignoring invalid cached HMCL CE plugin trust status", exception);
+                    LOG.warning("Ignoring invalid cached Aura plugin trust status", exception);
                     return new PluginTrustStatusCache(verifier, cache, Clock.systemUTC(), false);
                 }
             } catch (IOException exception) {
-                throw new IllegalStateException("Failed to initialize HMCL CE plugin trust status", exception);
+                throw new IllegalStateException("Failed to initialize Aura plugin trust status", exception);
             }
         }
     }

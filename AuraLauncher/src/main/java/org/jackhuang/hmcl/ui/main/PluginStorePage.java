@@ -1091,7 +1091,7 @@ public class PluginStorePage extends VBox implements DecoratorPage, PageAware {
 
     /// Returns the complete launcher constraint for display without reducing it to a minimum version.
     ///
-    /// @param launcherVersion normalized HMCL CE version constraint
+    /// @param launcherVersion normalized Aura version constraint
     /// @return full constraint or a localized unrestricted label
     static String launcherVersionRequirementText(String launcherVersion) {
         return launcherVersion.isBlank() || launcherVersion.equals("*")
@@ -1934,7 +1934,7 @@ public class PluginStorePage extends VBox implements DecoratorPage, PageAware {
                 null
         );
 
-        /// Complete HMCL CE version constraint declared by the selected package version.
+        /// Complete Aura version constraint declared by the selected package version.
         private final LineButton launcherVersionRow = createReadOnlyRow(
                 SVG.SCHEMA,
                 i18n("plugin.store.launcher_version"),
