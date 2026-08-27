@@ -33,11 +33,35 @@ jobs:
       - name: Verify xvfb
         run: command -v xvfb-run
       - name: Verify Protector supervision
-        timeout-minutes: 10
-        run: >-
-          xvfb-run -a ./gradlew :AuraLauncher:test
-          --tests org.jackhuang.hmcl.plugin.protector.ProtectorBootstrapTest
-          --no-daemon --stacktrace --info
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          methods=(
+            readyLeavesNoRecoveryRecord
+            cancelLeavesNoRecoveryRecord
+            zeroLauncherExitLeavesNoRecoveryRecord
+            normalPreReadyShutdownLeavesNoRecoveryRecord
+            nonzeroLauncherExitPersistsCrashRecovery
+            uncaughtChildFailurePersistsCrashRecovery
+            connectTimeoutPersistsRecoveryAndTerminatesChild
+            preConnectCrashPersistsRecoveryAtJvmStarted
+            invalidAuthenticatedStateTerminatesAndReapsChild
+            preReadyCrashPersistsRecoveryAtCurrentStage
+            preReadyHangPersistsRecoveryAtCurrentStage
+            renewalSubprocessCannotExtendHardStartupDeadline
+            timeoutEscalatesAfterGraceBeforeForceTermination
+            timeoutControlWriteFailureTerminatesAndReapsChild
+            diagnosticFailureStillProcessesTerminationRequest
+          )
+          for method in "${methods[@]}"; do
+            echo "::group::$method"
+            timeout --signal=TERM --kill-after=15s 90s \
+              xvfb-run -a ./gradlew :AuraLauncher:test \
+              --tests "org.jackhuang.hmcl.plugin.protector.ProtectorBootstrapTest.$method" \
+              --no-daemon --stacktrace
+            echo "::endgroup::"
+          done
       - name: Build and test
         timeout-minutes: 20
         run: xvfb-run -a ./gradlew build --no-daemon --parallel --stacktrace
