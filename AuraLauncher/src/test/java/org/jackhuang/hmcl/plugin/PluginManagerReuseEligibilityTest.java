@@ -63,15 +63,15 @@ public final class PluginManagerReuseEligibilityTest {
         String compatibleId = "dev.test.activatable.compatible";
         String underGrantedId = "dev.test.activatable.under-granted";
         String launcherIncompatibleId = "dev.test.activatable.launcher-incompatible";
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(compatibleId + ".npl"),
                 compatibleId, "[]", "[]", "*", "compatible"
         );
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(underGrantedId + ".npl"),
                 underGrantedId, "[\"filesystem\"]", "[\"filesystem\"]", "*", "under-granted"
         );
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(launcherIncompatibleId + ".npl"),
                 launcherIncompatibleId, "[]", "[]", ">=9999.0.0", "incompatible"
         );
@@ -88,7 +88,7 @@ public final class PluginManagerReuseEligibilityTest {
                 PluginRuntimeTrustGuard.unavailable("test trust state unavailable")
         );
         String untrustedId = "dev.test.activatable.untrusted";
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 untrustedManager.getPluginsDirectory().resolve(untrustedId + ".npl"),
                 untrustedId, "[]", "[]", "*", "untrusted"
         );
@@ -104,7 +104,7 @@ public final class PluginManagerReuseEligibilityTest {
         String pluginId = "dev.test.reuse.required";
         PluginManager manager = new PluginManager(temporaryDirectory);
         Path packageFile = manager.getPluginsDirectory().resolve(pluginId + ".npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 packageFile,
                 pluginId,
                 "[\"filesystem\", \"network\"]",
@@ -120,7 +120,7 @@ public final class PluginManagerReuseEligibilityTest {
         manager.setGrantedPermissions(pluginId, Set.of(PluginPermission.FILESYSTEM));
         assertTrue(manager.getReusableInstalledPluginIds(installed).contains(pluginId));
 
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 packageFile,
                 pluginId,
                 "[\"filesystem\", \"network\"]",
@@ -141,7 +141,7 @@ public final class PluginManagerReuseEligibilityTest {
         String nonCanonicalId = "Dev.test.reuse.noncanonical";
         String disabledId = "dev.test.reuse.disabled";
         PluginManager manager = new PluginManager(temporaryDirectory);
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(optionalId + ".npl"),
                 optionalId,
                 "[\"network\"]",
@@ -150,7 +150,7 @@ public final class PluginManagerReuseEligibilityTest {
                 "optional"
         );
         writeLegacyPackage(manager.getPluginsDirectory().resolve(legacyId + ".npl"), legacyId);
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(nonCanonicalId + ".npl"),
                 nonCanonicalId,
                 "[]",
@@ -158,7 +158,7 @@ public final class PluginManagerReuseEligibilityTest {
                 "*",
                 "noncanonical"
         );
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(disabledId + ".npl"),
                 disabledId,
                 "[]",
@@ -188,7 +188,7 @@ public final class PluginManagerReuseEligibilityTest {
             throws IOException {
         String pluginId = "dev.test.reuse.pending";
         PluginManager manager = new PluginManager(temporaryDirectory);
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(pluginId + ".npl"),
                 pluginId,
                 "[]",
@@ -219,7 +219,7 @@ public final class PluginManagerReuseEligibilityTest {
         String dependencyId = "dev.test.reuse.rewritten-dependency";
         String rootId = "dev.test.reuse.rewritten-root";
         Path installedDependency = manager.getPluginsDirectory().resolve(dependencyId + ".npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 installedDependency,
                 dependencyId,
                 "1.0.0",
@@ -236,7 +236,7 @@ public final class PluginManagerReuseEligibilityTest {
         assertTrue(expectedReusableArtifacts.containsKey(dependencyId));
 
         Path rootPackage = temporaryDirectory.resolve("root.npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 rootPackage,
                 rootId,
                 "1.0.0",
@@ -248,7 +248,7 @@ public final class PluginManagerReuseEligibilityTest {
         );
         LocalPluginInspection rootInspection = manager.inspectLocalPluginPackage(rootPackage);
 
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 installedDependency,
                 dependencyId,
                 "1.0.0",
@@ -284,7 +284,7 @@ public final class PluginManagerReuseEligibilityTest {
         String dependencyId = "dev.test.reuse.revoked-dependency";
         String rootId = "dev.test.reuse.revoked-root";
         Path installedDependency = manager.getPluginsDirectory().resolve(dependencyId + ".npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 installedDependency,
                 dependencyId,
                 "1.0.0",
@@ -302,7 +302,7 @@ public final class PluginManagerReuseEligibilityTest {
         assertTrue(expectedReusableArtifacts.containsKey(dependencyId));
 
         Path rootPackage = temporaryDirectory.resolve("required-root.npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 rootPackage,
                 rootId,
                 "1.0.0",
@@ -347,7 +347,7 @@ public final class PluginManagerReuseEligibilityTest {
         PluginManager manager = new PluginManager(localHome);
         String dependencyId = "dev.test.reuse.replaced-disabled-dependency";
         String rootId = "dev.test.reuse.replaced-disabled-root";
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 manager.getPluginsDirectory().resolve(dependencyId + ".npl"),
                 dependencyId,
                 "1.0.0",
@@ -361,7 +361,7 @@ public final class PluginManagerReuseEligibilityTest {
 
         Path dependencyReplacement = temporaryDirectory.resolve("dependency-replacement.npl");
         Path rootPackage = temporaryDirectory.resolve("replacement-root.npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 dependencyReplacement,
                 dependencyId,
                 "2.0.0",
@@ -371,7 +371,7 @@ public final class PluginManagerReuseEligibilityTest {
                 "[]",
                 "replacement"
         );
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 rootPackage,
                 rootId,
                 "1.0.0",
@@ -411,7 +411,7 @@ public final class PluginManagerReuseEligibilityTest {
         String pluginId = "dev.test.prior.concurrent-install";
         Path confirmedSource = temporaryDirectory.resolve("confirmed-install.npl");
         Path competingSource = temporaryDirectory.resolve("competing-install.npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 confirmedSource,
                 pluginId,
                 "1.0.0",
@@ -421,7 +421,7 @@ public final class PluginManagerReuseEligibilityTest {
                 "[]",
                 "confirmed"
         );
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 competingSource,
                 pluginId,
                 "1.0.0",
@@ -465,7 +465,7 @@ public final class PluginManagerReuseEligibilityTest {
         PluginManager confirmingManager = new PluginManager(localHome);
         String pluginId = "dev.test.prior.concurrent-update";
         Path installedPackage = confirmingManager.getPluginsDirectory().resolve(pluginId + ".npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 installedPackage,
                 pluginId,
                 "1.0.0",
@@ -483,7 +483,7 @@ public final class PluginManagerReuseEligibilityTest {
 
         Path confirmedUpdate = temporaryDirectory.resolve("confirmed-update.npl");
         Path competingUpdate = temporaryDirectory.resolve("competing-update.npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 confirmedUpdate,
                 pluginId,
                 "2.0.0",
@@ -493,7 +493,7 @@ public final class PluginManagerReuseEligibilityTest {
                 "[]",
                 "confirmed"
         );
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 competingUpdate,
                 pluginId,
                 "1.5.0",
@@ -555,7 +555,7 @@ public final class PluginManagerReuseEligibilityTest {
             throws IOException {
         PluginManager manager = new PluginManager(temporaryDirectory.resolve("home"));
         Path sourcePackage = temporaryDirectory.resolve("launcher-incompatible.npl");
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 sourcePackage,
                 "dev.test.launcher.incompatible",
                 "1.0.0",
@@ -684,7 +684,7 @@ public final class PluginManagerReuseEligibilityTest {
         };
     }
 
-    /// Writes one schema-v4 package containing a manifest and a caller-selected byte marker.
+    /// Writes one schema-v5 package containing a manifest and a caller-selected byte marker.
     ///
     /// @param target package path
     /// @param pluginId plugin ID
@@ -693,7 +693,7 @@ public final class PluginManagerReuseEligibilityTest {
     /// @param launcherVersion launcher compatibility constraint
     /// @param marker package byte marker
     /// @throws IOException if package creation fails
-    private static void writeSchemaFourPackage(
+    private static void writeSchemaFivePackage(
             Path target,
             String pluginId,
             String permissionsJson,
@@ -701,7 +701,7 @@ public final class PluginManagerReuseEligibilityTest {
             String launcherVersion,
             String marker
     ) throws IOException {
-        writeSchemaFourPackage(
+        writeSchemaFivePackage(
                 target,
                 pluginId,
                 "1.0.0",
@@ -713,7 +713,7 @@ public final class PluginManagerReuseEligibilityTest {
         );
     }
 
-    /// Writes one schema-v4 package with caller-selected version, permissions, dependencies, and byte marker.
+    /// Writes one schema-v5 package with caller-selected version, permissions, dependencies, and byte marker.
     ///
     /// @param target package path
     /// @param pluginId plugin ID
@@ -724,7 +724,7 @@ public final class PluginManagerReuseEligibilityTest {
     /// @param dependenciesJson dependency array JSON
     /// @param marker package byte marker
     /// @throws IOException if package creation fails
-    private static void writeSchemaFourPackage(
+    private static void writeSchemaFivePackage(
             Path target,
             String pluginId,
             String version,
@@ -736,7 +736,7 @@ public final class PluginManagerReuseEligibilityTest {
     ) throws IOException {
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Reuse Eligibility Test",
                   "version": "%s",
@@ -745,6 +745,8 @@ public final class PluginManagerReuseEligibilityTest {
                   "permissions": %s,
                   "requiredPermissions": %s,
                   "launcherVersion": "%s",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": %s
                 }
                 """.formatted(

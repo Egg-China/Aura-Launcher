@@ -349,7 +349,7 @@ public final class PluginStoreDependencyResolverTest {
     @Test
     public void selectedVersionTrustControlsDependencyResolution() throws Exception {
         String pluginId = "dev.test.version-trust";
-        PluginStoreManifest manifest = Objects.requireNonNull(JsonUtils.GSON.fromJson("""
+        PluginStoreManifest manifest = PluginStoreManifest.fromJson(JsonUtils.GSON.fromJson("""
                 {
                   "schemaVersion": 2,
                   "id": "%s",
@@ -358,10 +358,13 @@ public final class PluginStoreDependencyResolverTest {
                       "version": "2.0.0",
                       "packageUrl": "https://example.com/v2.npl",
                       "sha256": "%s",
-                      "pluginApiVersion": 4,
+                      "pluginApiVersion": 5,
                       "permissions": [],
                       "requiredPermissions": [],
                       "launcherVersion": "*",
+                      "runtime": "java",
+                      "abi": 1,
+                      "platforms": [],
                       "dependencies": [],
                       "size": 2
                     },
@@ -369,17 +372,20 @@ public final class PluginStoreDependencyResolverTest {
                       "version": "1.0.0",
                       "packageUrl": "https://example.com/v1.npl",
                       "sha256": "%s",
-                      "pluginApiVersion": 4,
+                      "pluginApiVersion": 5,
                       "permissions": [],
                       "requiredPermissions": [],
                       "launcherVersion": "*",
+                      "runtime": "java",
+                      "abi": 1,
+                      "platforms": [],
                       "dependencies": [],
                       "size": 1
                     }
                   ]
                 }
-                """.formatted(pluginId, "2".repeat(64), "1".repeat(64)), PluginStoreManifest.class));
-        manifest.validate(pluginId);
+                """.formatted(pluginId, "2".repeat(64), "1".repeat(64)),
+                com.google.gson.JsonElement.class), pluginId);
         PluginStoreManifest.PluginVersionEntry rejected = Objects.requireNonNull(manifest.getVersion("2.0.0"));
         PluginStoreManifest.PluginVersionEntry certified = Objects.requireNonNull(manifest.getVersion("1.0.0"));
         rejected.setTrust(PluginTrustResult.rejected("artifact proof does not match"));
@@ -1562,7 +1568,7 @@ public final class PluginStoreDependencyResolverTest {
                 """.formatted(pluginId, versionsJson);
     }
 
-    /// Creates one compatible API-v4 repository version with explicit permissions and dependencies.
+    /// Creates one compatible schema-v5 repository version with explicit permissions and dependencies.
     ///
     /// @param baseUrl local test server base URL
     /// @param packageName unused package route name
@@ -1582,17 +1588,20 @@ public final class PluginStoreDependencyResolverTest {
                   "version": "%s",
                   "packageUrl": "%s/%s.npl",
                   "sha256": "%s",
-                  "pluginApiVersion": 4,
+                  "pluginApiVersion": 5,
                   "permissions": [],
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
+                  "platforms": [],
                   "dependencies": %s,
                   "size": 1
                 }
                 """.formatted(pluginVersion, baseUrl, packageName, hashDigit.repeat(64), dependenciesJson);
     }
 
-    /// Parses one remote API-v4 version with an explicit permission declaration.
+    /// Parses one remote schema-v5 version with an explicit permission declaration.
     ///
     /// @param pluginId repository plugin ID
     /// @param pluginVersion published version
@@ -1606,7 +1615,7 @@ public final class PluginStoreDependencyResolverTest {
             String hashDigit,
             String permissionsJson
     ) throws IOException {
-        PluginStoreManifest manifest = Objects.requireNonNull(
+        PluginStoreManifest manifest = PluginStoreManifest.fromJson(
                 JsonUtils.GSON.fromJson("""
                         {
                           "schemaVersion": 2,
@@ -1616,10 +1625,13 @@ public final class PluginStoreDependencyResolverTest {
                               "version": "%s",
                               "packageUrl": "https://example.com/%s.npl",
                               "sha256": "%s",
-                              "pluginApiVersion": 4,
+                              "pluginApiVersion": 5,
                               "permissions": %s,
                               "requiredPermissions": [],
                               "launcherVersion": "*",
+                              "runtime": "java",
+                              "abi": 1,
+                              "platforms": [],
                               "dependencies": [],
                               "size": 1
                             }
@@ -1631,14 +1643,13 @@ public final class PluginStoreDependencyResolverTest {
                         pluginId,
                         hashDigit.repeat(64),
                         permissionsJson
-                ), PluginStoreManifest.class),
-                "Generated repository manifest was null"
+                ), com.google.gson.JsonElement.class),
+                pluginId
         );
-        manifest.validate(pluginId);
         return Objects.requireNonNull(manifest.getVersion(pluginVersion), "Generated version was missing");
     }
 
-    /// Parses one minimal API-v4 package manifest for installed-graph tests.
+    /// Parses one minimal schema-v5 package manifest for installed-graph tests.
     ///
     /// @param pluginId plugin ID
     /// @param pluginVersion installed version
@@ -1652,7 +1663,7 @@ public final class PluginStoreDependencyResolverTest {
     ) throws IOException {
         return PluginManifest.fromJson(new StringReader("""
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "%s",
                   "version": "%s",
@@ -1661,6 +1672,8 @@ public final class PluginStoreDependencyResolverTest {
                   "permissions": [],
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": %s
                 }
                 """.formatted(pluginId, pluginId, pluginVersion, dependenciesJson)));
@@ -1680,7 +1693,7 @@ public final class PluginStoreDependencyResolverTest {
     ) throws IOException {
         return PluginManifest.fromJson(new StringReader("""
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "%s",
                   "version": "%s",
@@ -1689,6 +1702,8 @@ public final class PluginStoreDependencyResolverTest {
                   "permissions": %s,
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": []
                 }
                 """.formatted(pluginId, pluginId, pluginVersion, permissionsJson)));

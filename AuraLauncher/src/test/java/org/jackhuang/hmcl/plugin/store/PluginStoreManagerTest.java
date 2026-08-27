@@ -21,6 +21,7 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.jackhuang.hmcl.Metadata;
+import org.jackhuang.hmcl.plugin.PluginManifest;
 import org.jackhuang.hmcl.plugin.runtime.PluginAbi;
 import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityEvaluator;
 import org.jackhuang.hmcl.plugin.runtime.PluginPlatformTarget;
@@ -445,7 +446,7 @@ public final class PluginStoreManagerTest {
         byte @Unmodifiable [] packageBytes = createPluginPackage(
                 "dev.hmclce.test.redirect",
                 "1.0.0",
-                4,
+                5,
                 "[]",
                 "[]"
         );
@@ -472,10 +473,13 @@ public final class PluginStoreManagerTest {
                           "version": "1.0.0",
                           "packageUrl": "%s",
                           "sha256": "%s",
-                          "pluginApiVersion": 4,
+                          "pluginApiVersion": 5,
                           "permissions": [],
                           "requiredPermissions": [],
                           "launcherVersion": "*",
+                          "runtime": "java",
+                          "abi": 1,
+                          "platforms": [],
                           "dependencies": [],
                           "size": %d
                         }
@@ -574,9 +578,10 @@ public final class PluginStoreManagerTest {
         }
     }
 
-    /// Keeps historical API-v1 through API-v3 metadata visible while excluding every old package from installation.
+    /// Keeps historical schema-v1 through schema-v4 metadata visible while excluding every old package from
+    /// installation.
     @Test
-    public void rejectsEveryPluginApiBeforeVersionFour(@TempDir Path temporaryDirectory) throws Exception {
+    public void rejectsEveryPluginApiBeforeVersionFive(@TempDir Path temporaryDirectory) throws Exception {
         String pluginId = "dev.hmclce.test.legacy-api";
         PluginStoreManifest manifest = parseManifest(pluginId, """
                 {
@@ -615,8 +620,10 @@ public final class PluginStoreManagerTest {
         assertTrue(manager.getCompatibleVersions(manifest).isEmpty());
         for (PluginStoreManifest.PluginVersionEntry version : manifest.getVersions()) {
             IOException exception = assertThrows(IOException.class, () -> manager.validateCompatibility(version));
-            assertTrue(exception.getMessage().contains("schema " + version.getPluginApiVersion()));
-            assertTrue(exception.getMessage().contains("4..5"));
+            assertEquals(
+                    PluginManifest.executableSchemaDiagnostic(version.getPluginApiVersion()),
+                    exception.getMessage()
+            );
             assertFalse(manager.isCompatible(version));
         }
     }
@@ -646,15 +653,22 @@ public final class PluginStoreManagerTest {
                 "platforms": ["windows"],
                 "dependencies": []
                 """);
-        assertDoesNotThrow(() -> manager.validateCompatibility(schemaFour));
+        IOException schemaFourFailure = assertThrows(
+                IOException.class,
+                () -> manager.validateCompatibility(schemaFour)
+        );
+        assertEquals(PluginManifest.executableSchemaDiagnostic(4), schemaFourFailure.getMessage());
         assertDoesNotThrow(() -> manager.validateCompatibility(schemaFive));
-        assertTrue(manager.isCompatible(schemaFour));
+        assertFalse(manager.isCompatible(schemaFour));
         assertTrue(manager.isCompatible(schemaFive));
 
-        assertCompatibilityRejected(manager, compatibilityVersion(4, """
+        assertCompatibilityRejected(manager, compatibilityVersion(5, """
                 "permissions": [],
                 "requiredPermissions": [],
                 "launcherVersion": ">=9999",
+                "runtime": "java",
+                "abi": 2,
+                "platforms": ["windows"],
                 "dependencies": []
                 """), Metadata.VERSION, ">=9999");
         assertCompatibilityRejected(manager, compatibilityVersion(5, """
@@ -956,8 +970,8 @@ public final class PluginStoreManagerTest {
     @Test
     public void stageSelectedHistoricalVersion(@TempDir Path temporaryDirectory) throws Exception {
         String pluginId = "dev.hmclce.test.staging";
-        byte @Unmodifiable [] oldPackage = createPluginPackage(pluginId, "1.0.0", 4, "[]", "[]");
-        byte @Unmodifiable [] latestPackage = createPluginPackage(pluginId, "2.0.0", 4, "[]", "[]");
+        byte @Unmodifiable [] oldPackage = createPluginPackage(pluginId, "1.0.0", 5, "[]", "[]");
+        byte @Unmodifiable [] latestPackage = createPluginPackage(pluginId, "2.0.0", 5, "[]", "[]");
         AtomicInteger oldRequests = new AtomicInteger();
         AtomicInteger latestRequests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -1028,7 +1042,7 @@ public final class PluginStoreManagerTest {
                     selectedVersion,
                     installedPackage,
                     existingPackage,
-                    createPluginPackage("dev.hmclce.test.other", selectedVersion, 4, "[]", "[]"),
+                    createPluginPackage("dev.hmclce.test.other", selectedVersion, 5, "[]", "[]"),
                     "does not match registry entry"
             );
             assertMetadataMismatchPreservesTarget(
@@ -1039,7 +1053,7 @@ public final class PluginStoreManagerTest {
                     selectedVersion,
                     installedPackage,
                     existingPackage,
-                    createPluginPackage(pluginId, "9.0.0", 4, "[]", "[]"),
+                    createPluginPackage(pluginId, "9.0.0", 5, "[]", "[]"),
                     "does not match selected version"
             );
             assertMetadataMismatchPreservesTarget(
@@ -1061,7 +1075,7 @@ public final class PluginStoreManagerTest {
                     selectedVersion,
                     installedPackage,
                     existingPackage,
-                    createPluginPackage(pluginId, selectedVersion, 4, "[\"network\"]", "[]"),
+                    createPluginPackage(pluginId, selectedVersion, 5, "[\"network\"]", "[]"),
                     "permissions do not match"
             );
             assertMetadataMismatchPreservesTarget(
@@ -1075,7 +1089,7 @@ public final class PluginStoreManagerTest {
                     createPluginPackage(
                             pluginId,
                             selectedVersion,
-                            4,
+                            5,
                             "[]",
                             "[{\"id\":\"dev.hmclce.test.metadata-base\",\"version\":\">=1.0.0\"}]"
                     ),
@@ -1084,7 +1098,7 @@ public final class PluginStoreManagerTest {
             byte @Unmodifiable [] requiredMismatch = createPluginPackage(
                     pluginId,
                     selectedVersion,
-                    4,
+                    5,
                     "[\"filesystem\",\"network\"]",
                     "[]",
                     "[\"network\"]",
@@ -1113,7 +1127,7 @@ public final class PluginStoreManagerTest {
             byte @Unmodifiable [] launcherMismatch = createPluginPackage(
                     pluginId,
                     selectedVersion,
-                    4,
+                    5,
                     "[]",
                     "[]",
                     "[]",
@@ -1373,10 +1387,13 @@ public final class PluginStoreManagerTest {
                       "version": "1.0.0",
                       "packageUrl": "https://example.com/plugin.npl",
                       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-                      "pluginApiVersion": 4,
+                      "pluginApiVersion": 5,
                       "permissions": [],
                       "requiredPermissions": [],
                       "launcherVersion": "*",
+                      "runtime": "java",
+                      "abi": 1,
+                      "platforms": [],
                       "dependencies": [],
                       "size": 1
                     }
@@ -1401,10 +1418,13 @@ public final class PluginStoreManagerTest {
                       "version": "1.0.0",
                       "packageUrl": "https://example.com/plugin.npl",
                       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-                      "pluginApiVersion": 4,
+                      "pluginApiVersion": 5,
                       "permissions": [],
                       "requiredPermissions": [],
                       "launcherVersion": "*",
+                      "runtime": "java",
+                      "abi": 1,
+                      "platforms": [],
                       "dependencies": [],
                       "size": 1
                     }
@@ -1461,10 +1481,13 @@ public final class PluginStoreManagerTest {
                           "version": "1.0.0",
                           "packageUrl": "https://example.com/plugin.npl",
                           "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-                          "pluginApiVersion": 4,
+                          "pluginApiVersion": 5,
                           "permissions": [],
                           "requiredPermissions": [],
                           "launcherVersion": "*",
+                          "runtime": "java",
+                          "abi": 1,
+                          "platforms": [],
                           "dependencies": [],
                           "size": 1
                         }
@@ -1565,7 +1588,7 @@ public final class PluginStoreManagerTest {
                 """.formatted(pluginId, versionsJson);
     }
 
-    /// Creates one API-v4 repository version entry with no required permissions and unrestricted launcher support.
+    /// Creates one schema-v5 repository version entry with no required permissions and unrestricted launcher support.
     ///
     /// @param version selected version string
     /// @param packageUrl package endpoint
@@ -1586,10 +1609,13 @@ public final class PluginStoreManagerTest {
                   "version": "%s",
                   "packageUrl": "%s",
                   "sha256": "%s",
-                  "pluginApiVersion": 4,
+                  "pluginApiVersion": 5,
                   "permissions": %s,
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
+                  "platforms": [],
                   "dependencies": %s,
                   "size": %d
                 }
@@ -1603,7 +1629,7 @@ public final class PluginStoreManagerTest {
         );
     }
 
-    /// Creates one API-v4 repository version entry with exact package policy metadata.
+    /// Creates one schema-v5 repository version entry with exact package policy metadata.
     ///
     /// @param version selected version string
     /// @param packageUrl package endpoint
@@ -1628,10 +1654,13 @@ public final class PluginStoreManagerTest {
                   "version": "%s",
                   "packageUrl": "%s",
                   "sha256": "%s",
-                  "pluginApiVersion": 4,
+                  "pluginApiVersion": 5,
                   "permissions": %s,
                   "requiredPermissions": %s,
                   "launcherVersion": "%s",
+                  "runtime": "java",
+                  "abi": 1,
+                  "platforms": [],
                   "dependencies": %s,
                   "size": %d
                 }
@@ -1830,6 +1859,11 @@ public final class PluginStoreManagerTest {
                 ? "\"requiredPermissions\": " + requiredPermissionsJson + ",\n"
                 + "      \"launcherVersion\": \"" + launcherVersion + "\","
                 : "";
+        String schemaFiveDeclarations = schemaVersion >= 5
+                ? "\n      \"runtime\": \"java\",\n"
+                + "      \"abi\": 1,\n"
+                + "      \"platforms\": [],"
+                : "";
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
             zip.putNextEntry(new ZipEntry("plugin.json"));
@@ -1843,6 +1877,7 @@ public final class PluginStoreManagerTest {
                       "entrypoint": "dev.hmclce.test.Plugin",
                       %s
                       %s
+                      %s
                       "dependencies": %s
                     }
                     """.formatted(
@@ -1851,6 +1886,7 @@ public final class PluginStoreManagerTest {
                     version,
                     permissionDeclaration,
                     schemaFourDeclarations,
+                    schemaFiveDeclarations,
                     dependenciesJson
             ).getBytes(StandardCharsets.UTF_8));
             zip.closeEntry();

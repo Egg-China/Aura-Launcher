@@ -459,7 +459,7 @@ public final class PluginManagerRecoveryTest {
     ) throws IOException {
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Recovery Ordinary",
                   "version": "1.0.0",
@@ -468,6 +468,8 @@ public final class PluginManagerRecoveryTest {
                   "permissions": [],
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": %s
                 }
                 """.formatted(pluginId, LifecycleProbePlugin.class.getName(), dependenciesJson);

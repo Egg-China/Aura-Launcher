@@ -371,22 +371,22 @@ public final class PluginManagerLifecycleStateTest {
         assertTrue(restarted.getInstalledManifests().containsKey(legacyId));
     }
 
-    /// Executes a schema-v4 Java/ABI1 package through inspection, staging, restart discovery, and lifecycle loading.
+    /// Executes a schema-v5 Java/ABI1 package through inspection, staging, restart discovery, and lifecycle loading.
     ///
     /// @param temporaryDirectory isolated launcher home and source package directory
     /// @throws Exception if package creation, installation, discovery, or lifecycle loading fails
     @Test
-    public void executeSchemaFourJavaAbiOnePackage(@TempDir Path temporaryDirectory) throws Exception {
+    public void executeSchemaFiveJavaAbiOnePackage(@TempDir Path temporaryDirectory) throws Exception {
         clearLifecycleProbeProperties();
         try {
             Path localHome = temporaryDirectory.resolve("home");
             PluginManager manager = new PluginManager(localHome);
-            String pluginId = "dev.hmclce.test.schema-four-execution";
-            Path sourcePackage = temporaryDirectory.resolve("schema-four-execution.npl");
+            String pluginId = "dev.hmclce.test.schema-five-execution";
+            Path sourcePackage = temporaryDirectory.resolve("schema-five-execution.npl");
             writePluginPackage(sourcePackage, pluginId, "1.0.0", "[]", LifecycleProbePlugin.class);
 
             LocalPluginInspection inspection = manager.inspectLocalPluginPackage(sourcePackage);
-            assertEquals(4, inspection.getManifest().getSchemaVersion());
+            assertEquals(5, inspection.getManifest().getSchemaVersion());
             assertEquals(PluginRuntimeTypes.JAVA, inspection.getManifest().getRuntime());
             assertEquals(PluginAbi.ABI_1, inspection.getManifest().getAbi());
 
@@ -865,7 +865,7 @@ public final class PluginManagerLifecycleStateTest {
         assertLifecycleProbeNeverRan();
     }
 
-    /// Writes one API-v4 JVM plugin package with a caller-selected dependency array and entry point.
+    /// Writes one schema-v5 JVM plugin package with a caller-selected dependency array and entry point.
     ///
     /// @param target package path
     /// @param pluginId plugin ID
@@ -883,7 +883,7 @@ public final class PluginManagerLifecycleStateTest {
         Files.createDirectories(Objects.requireNonNull(target.getParent()));
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Lifecycle State Test",
                   "version": "%s",
@@ -892,6 +892,8 @@ public final class PluginManagerLifecycleStateTest {
                   "permissions": [],
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": %s
                 }
                 """.formatted(pluginId, version, entrypoint.getName(), dependenciesJson);

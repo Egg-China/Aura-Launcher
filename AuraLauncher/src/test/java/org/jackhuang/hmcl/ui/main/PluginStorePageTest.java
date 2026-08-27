@@ -383,10 +383,10 @@ public final class PluginStorePageTest {
 
     /// Displays both executable plugin API generations as compatible when the shared evaluator accepts them.
     @Test
-    public void compatibilityTextAcceptsEveryExecutableSchema() throws IOException {
+    public void compatibilityTextAcceptsAuraExecutableSchema() throws IOException {
         PluginStoreManager manager = new PluginStoreManager();
 
-        for (int schemaVersion : List.of(4, 5)) {
+        for (int schemaVersion : List.of(5)) {
             String text = PluginStorePage.compatibilityText(
                     manager,
                     compatibleVersion(schemaVersion)
@@ -399,11 +399,11 @@ public final class PluginStorePageTest {
         }
     }
 
-    /// Treats every backend-supported manifest generation as executable in permission controls.
+    /// Treats only schema v5 as executable in Aura permission controls.
     @Test
     public void permissionControlsUseExecutableSchemaRange() {
         assertFalse(PluginPermissionManagementPage.isExecutableSchema(3));
-        assertTrue(PluginPermissionManagementPage.isExecutableSchema(4));
+        assertFalse(PluginPermissionManagementPage.isExecutableSchema(4));
         assertTrue(PluginPermissionManagementPage.isExecutableSchema(5));
         assertFalse(PluginPermissionManagementPage.isExecutableSchema(6));
     }

@@ -115,13 +115,10 @@ public final class PluginCompatibilityEvaluator {
             @Nullable String exactProviderId
     ) {
         int schemaVersion = requirements.schemaVersion();
-        if (schemaVersion < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION
-                || schemaVersion > PluginManifest.CURRENT_SCHEMA_VERSION) {
+        if (!PluginManifest.isExecutableSchema(schemaVersion)) {
             return new PluginCompatibilityResult(
                     PluginCompatibilityStatus.UNSUPPORTED_SCHEMA,
-                    "Plugin manifest schema " + schemaVersion + " is outside executable range "
-                            + PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION + ".."
-                            + PluginManifest.CURRENT_SCHEMA_VERSION
+                    PluginManifest.executableSchemaDiagnostic(schemaVersion)
             );
         }
         String launcherConstraint = requirements.launcherVersion();

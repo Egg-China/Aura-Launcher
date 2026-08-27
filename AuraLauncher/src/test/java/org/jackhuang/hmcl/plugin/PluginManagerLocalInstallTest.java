@@ -171,7 +171,7 @@ public final class PluginManagerLocalInstallTest {
         assertTrue(reloaded.isPluginEnabled(secondId));
     }
 
-    /// Rejects installation when the explicit API-v4 Mixin permission is omitted from the grant decision.
+    /// Rejects installation when the explicit schema-v5 Mixin permission is omitted from the grant decision.
     ///
     /// @param temporaryDirectory isolated test directory
     /// @throws Exception if package preparation or lifecycle registration fails
@@ -324,7 +324,7 @@ public final class PluginManagerLocalInstallTest {
         }
     }
 
-    /// Keeps lifecycle active when only an optional capability of an active API-v4 Mixin plugin is revoked.
+    /// Keeps lifecycle active when only an optional capability of an active schema-v5 Mixin plugin is revoked.
     ///
     /// @param temporaryDirectory isolated test directory
     /// @throws Exception if package creation, Agent registration, or permission persistence fails
@@ -422,7 +422,7 @@ public final class PluginManagerLocalInstallTest {
         assertTrue(manager.getInstalledManifests().isEmpty());
     }
 
-    /// Keeps a schema-v3 package manageable so it can be upgraded to API v4 and then uninstalled.
+    /// Keeps a schema-v3 package manageable so it can be upgraded to schema v5 and then uninstalled.
     ///
     /// @param temporaryDirectory isolated launcher home and source directory
     /// @throws Exception if fixture creation, update publication, or uninstallation fails
@@ -445,7 +445,7 @@ public final class PluginManagerLocalInstallTest {
         manager.prepareLocalPluginInstallation(replacement, Set.of());
 
         PluginManifest updated = Objects.requireNonNull(manager.getInstalledManifests().get(pluginId));
-        assertEquals(4, updated.getSchemaVersion());
+        assertEquals(5, updated.getSchemaVersion());
         assertEquals("2.0.0", updated.getVersion());
 
         manager.uninstallPlugin(pluginId);
@@ -1022,12 +1022,12 @@ public final class PluginManagerLocalInstallTest {
         assertNotNull(restartedManager.getPlugin(dependentId));
     }
 
-    /// Ignores a legacy package's reverse dependency while updating and uninstalling an API-v4 plugin.
+    /// Ignores a legacy package's reverse dependency while updating and uninstalling a schema-v5 plugin.
     ///
     /// @param temporaryDirectory isolated launcher home and source directory
     /// @throws Exception if fixture creation, replacement publication, or uninstallation fails
     @Test
-    public void legacyReverseDependencyDoesNotBlockV4Mutation(@TempDir Path temporaryDirectory) throws Exception {
+    public void legacyReverseDependencyDoesNotBlockSchemaFiveMutation(@TempDir Path temporaryDirectory) throws Exception {
         PluginManager manager = new PluginManager(temporaryDirectory.resolve("home"));
         String baseId = "dev.hmclce.test.legacy-reverse-base";
         String legacyId = "dev.hmclce.test.legacy-reverse-consumer";
@@ -1054,12 +1054,12 @@ public final class PluginManagerLocalInstallTest {
         assertTrue(manager.getPublishedPluginManifests().containsKey(legacyId));
     }
 
-    /// Rejects a v4 installation whose dependency is available only as a legacy non-executable package.
+    /// Rejects a schema-v5 installation whose dependency is available only as a legacy non-executable package.
     ///
     /// @param temporaryDirectory isolated launcher home and source directory
     /// @throws Exception if fixture creation or package inspection fails
     @Test
-    public void rejectLegacyPackageAsV4Dependency(@TempDir Path temporaryDirectory) throws Exception {
+    public void rejectLegacyPackageAsSchemaFiveDependency(@TempDir Path temporaryDirectory) throws Exception {
         PluginManager manager = new PluginManager(temporaryDirectory.resolve("home"));
         String legacyId = "dev.hmclce.test.legacy-dependency";
         String rootId = "dev.hmclce.test.legacy-dependent-root";
@@ -1587,7 +1587,7 @@ public final class PluginManagerLocalInstallTest {
         writePluginPackage(target, pluginId, version, "[]");
     }
 
-    /// Writes an API-v4 package with caller-provided dependency JSON.
+    /// Writes a schema-v5 package with caller-provided dependency JSON.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -1603,7 +1603,7 @@ public final class PluginManagerLocalInstallTest {
         writePluginPackage(target, pluginId, version, dependenciesJson, PackagedTestPlugin.class);
     }
 
-    /// Writes an API-v4 package with a caller-provided dependency array and lifecycle entry point.
+    /// Writes a schema-v5 package with a caller-provided dependency array and lifecycle entry point.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -1621,7 +1621,7 @@ public final class PluginManagerLocalInstallTest {
         writePluginPackage(target, pluginId, version, dependenciesJson, "[]", entrypoint, "default");
     }
 
-    /// Writes an API-v4 package with caller-provided dependencies, permissions, lifecycle, and payload marker.
+    /// Writes a schema-v5 package with caller-provided dependencies, permissions, lifecycle, and payload marker.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -1652,7 +1652,7 @@ public final class PluginManagerLocalInstallTest {
         );
     }
 
-    /// Writes an API-v4 package while optionally omitting entry-point bytes for parent-classpath rejection tests.
+    /// Writes a schema-v5 package while optionally omitting entry-point bytes for parent-classpath rejection tests.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -1676,7 +1676,7 @@ public final class PluginManagerLocalInstallTest {
         Files.createDirectories(Objects.requireNonNull(target.getParent()));
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Local Install Test",
                   "version": "%s",
@@ -1685,6 +1685,7 @@ public final class PluginManagerLocalInstallTest {
                   "permissions": %s,
                   "requiredPermissions": %s,
                   "launcherVersion": "*",
+                  "runtime": "java", "abi": 1,
                   "dependencies": %s
                 }
                 """.formatted(
@@ -1715,7 +1716,7 @@ public final class PluginManagerLocalInstallTest {
         }
     }
 
-    /// Writes an API-v4 JVM plugin that requests Mixin while retaining a normal lifecycle entry point.
+    /// Writes a schema-v5 JVM plugin that requests Mixin while retaining a normal lifecycle entry point.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -1725,7 +1726,7 @@ public final class PluginManagerLocalInstallTest {
         writeMixinPluginPackage(target, pluginId, version, "[\"mixin\"]", true);
     }
 
-    /// Writes an API-v4 JVM Mixin package with configurable permissions and configuration presence.
+    /// Writes a schema-v5 JVM Mixin package with configurable permissions and configuration presence.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -1750,7 +1751,7 @@ public final class PluginManagerLocalInstallTest {
         );
     }
 
-    /// Writes an API-v4 JVM Mixin package with explicit required and optional permission classification.
+    /// Writes a schema-v5 JVM Mixin package with explicit required and optional permission classification.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -1771,7 +1772,7 @@ public final class PluginManagerLocalInstallTest {
         String mixinConfig = "mixins." + pluginId + ".json";
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Mixin Permission Test",
                   "version": "%s",
@@ -1780,6 +1781,8 @@ public final class PluginManagerLocalInstallTest {
                   "permissions": %s,
                   "requiredPermissions": %s,
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": [],
                   "mixins": ["%s"]
                 }

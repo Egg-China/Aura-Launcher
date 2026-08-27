@@ -190,7 +190,7 @@ public final class PluginManagerCertificationReceiptTest {
         return receipt;
     }
 
-    /// Writes one minimal API-v4 Java package with package-owned entry-point bytes.
+    /// Writes one minimal schema-v5 Java package with package-owned entry-point bytes.
     ///
     /// @param target target NPL path
     /// @param pluginId exact plugin ID
@@ -206,7 +206,7 @@ public final class PluginManagerCertificationReceiptTest {
         Files.createDirectories(Objects.requireNonNull(target.getParent()));
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Certification Receipt Test",
                   "version": "%s",
@@ -215,6 +215,8 @@ public final class PluginManagerCertificationReceiptTest {
                   "permissions": [],
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": []
                 }
                 """.formatted(pluginId, version, PackagedTestPlugin.class.getName());

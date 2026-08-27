@@ -45,6 +45,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /// Verifies legacy through schema-v5 plugin manifest parsing, validation, and runtime-provider contracts.
 @NotNullByDefault
 public final class PluginManifestTest {
+    /// Requires Aura Launcher to recognize schema v5 as its only executable plugin manifest generation.
+    @Test
+    public void exposeAuraExecutableSchemaBoundary() {
+        assertEquals(5, PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION);
+        assertFalse(PluginManifest.isExecutableSchema(4));
+        assertTrue(PluginManifest.isExecutableSchema(5));
+        assertFalse(PluginManifest.isExecutableSchema(6));
+        assertEquals(
+                "Aura Launcher requires plugin manifest schema v5; found v4",
+                PluginManifest.executableSchemaDiagnostic(4)
+        );
+    }
+
     /// Parses a schema-v1 manifest with legacy string dependencies and no permission declaration.
     @Test
     public void parseSchemaVersionOneManifest() throws IOException {

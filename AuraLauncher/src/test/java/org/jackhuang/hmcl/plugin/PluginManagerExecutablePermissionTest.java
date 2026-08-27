@@ -40,14 +40,14 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/// Verifies schema-v4 required and optional permission behavior across installation and lifecycle updates.
+/// Verifies executable schema-v5 required and optional permission behavior across installation and lifecycle updates.
 ///
 /// Discovery reaches [PluginManager#registerPreparedPlugin(PreparedPlugin)], which requires the JavaFX
 /// application thread, so this class is skipped when the JavaFX toolkit cannot start (e.g. headless CI).
 @EnabledIf("org.jackhuang.hmcl.JavaFXLauncher#isStarted")
 @NotNullByDefault
-public final class PluginManagerSchemaFourPermissionTest {
-    /// Loads a schema-v4 plugin with its required grant and a denied optional capability, then rejects an attempted
+public final class PluginManagerExecutablePermissionTest {
+    /// Loads a schema-v5 plugin with its required grant and a denied optional capability, then rejects an attempted
     /// required-permission revocation without stopping the active lifecycle.
     ///
     /// @param temporaryDirectory isolated test directory
@@ -58,8 +58,8 @@ public final class PluginManagerSchemaFourPermissionTest {
     ) throws Exception {
         Path localHome = temporaryDirectory.resolve("home");
         PluginManager manager = new PluginManager(localHome);
-        String pluginId = "dev.hmclce.test.schema-four-permissions";
-        Path sourcePackage = temporaryDirectory.resolve("schema-four-permissions.npl");
+        String pluginId = "dev.hmclce.test.schema-five-permissions";
+        Path sourcePackage = temporaryDirectory.resolve("schema-five-permissions.npl");
         writePluginPackage(
                 sourcePackage,
                 pluginId,
@@ -91,7 +91,7 @@ public final class PluginManagerSchemaFourPermissionTest {
         assertEquals(PluginRuntimeStatus.ENABLED, restarted.getPluginRuntimeStatus(pluginId));
     }
 
-    /// Blocks a manually dropped schema-v4 package with required permissions before its lifecycle class is loaded.
+    /// Blocks a manually dropped schema-v5 package with required permissions before its lifecycle class is loaded.
     ///
     /// @param temporaryDirectory isolated test directory
     /// @throws Exception if package creation, state persistence, or discovery fails
@@ -101,7 +101,7 @@ public final class PluginManagerSchemaFourPermissionTest {
     ) throws Exception {
         Path localHome = temporaryDirectory.resolve("home");
         PluginManager manager = new PluginManager(localHome);
-        String pluginId = "dev.hmclce.test.schema-four-unconfirmed";
+        String pluginId = "dev.hmclce.test.schema-five-unconfirmed";
         writePluginPackage(
                 manager.getPluginsDirectory().resolve(pluginId + ".npl"),
                 pluginId,
@@ -129,8 +129,8 @@ public final class PluginManagerSchemaFourPermissionTest {
     ) throws Exception {
         Path localHome = temporaryDirectory.resolve("home");
         PluginManager manager = new PluginManager(localHome);
-        String pluginId = "dev.hmclce.test.schema-four-pending";
-        Path versionOne = temporaryDirectory.resolve("schema-four-v1.npl");
+        String pluginId = "dev.hmclce.test.schema-five-pending";
+        Path versionOne = temporaryDirectory.resolve("schema-five-v1.npl");
         writePluginPackage(
                 versionOne,
                 pluginId,
@@ -143,7 +143,7 @@ public final class PluginManagerSchemaFourPermissionTest {
         FXThreadTestSupport.runOnFxThread(activeManager::discoverPlugins);
         PluginContainer loaded = Objects.requireNonNull(activeManager.getPlugin(pluginId));
 
-        Path versionTwo = temporaryDirectory.resolve("schema-four-v2.npl");
+        Path versionTwo = temporaryDirectory.resolve("schema-five-v2.npl");
         writePluginPackage(
                 versionTwo,
                 pluginId,
@@ -161,7 +161,7 @@ public final class PluginManagerSchemaFourPermissionTest {
         assertTrue(loaded.isEnabled());
     }
 
-    /// Writes a schema-v4 lifecycle package with explicit required permissions.
+    /// Writes a schema-v5 lifecycle package with explicit required permissions.
     ///
     /// @param target target package path
     /// @param pluginId package plugin ID
@@ -179,15 +179,17 @@ public final class PluginManagerSchemaFourPermissionTest {
         Files.createDirectories(Objects.requireNonNull(target.getParent()));
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
-                  "name": "Schema Four Permission Test",
+                  "name": "Schema Five Permission Test",
                   "version": "%s",
                   "type": "java",
                   "entrypoint": "%s",
                   "permissions": %s,
                   "requiredPermissions": %s,
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": []
                 }
                 """.formatted(

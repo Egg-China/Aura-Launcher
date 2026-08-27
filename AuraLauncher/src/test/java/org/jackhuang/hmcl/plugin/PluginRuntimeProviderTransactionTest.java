@@ -60,8 +60,8 @@ public final class PluginRuntimeProviderTransactionTest {
         PluginManager manager = new PluginManager(localHome);
         String providerId = "dev.test.uninstall-provider";
         String dependentId = "dev.test.uninstall-dependent";
-        writeApiFourPackage(manager.getPluginsDirectory().resolve(providerId + ".npl"), providerId, "1.0.0");
-        writeApiFourPackage(manager.getPluginsDirectory().resolve(dependentId + ".npl"), dependentId, "1.0.0");
+        writeJavaPackage(manager.getPluginsDirectory().resolve(providerId + ".npl"), providerId, "1.0.0");
+        writeJavaPackage(manager.getPluginsDirectory().resolve(dependentId + ".npl"), dependentId, "1.0.0");
         writeBindings(localHome, providerId, dependentId);
 
         manager.uninstallPlugin(dependentId);
@@ -80,8 +80,8 @@ public final class PluginRuntimeProviderTransactionTest {
         PluginManager manager = new PluginManager(localHome);
         String providerId = "dev.test.pending-provider";
         String dependentId = "dev.test.pending-dependent";
-        writeApiFourPackage(manager.getPluginsDirectory().resolve(providerId + ".npl"), providerId, "1.0.0");
-        writeApiFourPackage(manager.getPluginsDirectory().resolve(dependentId + ".npl"), dependentId, "1.0.0");
+        writeJavaPackage(manager.getPluginsDirectory().resolve(providerId + ".npl"), providerId, "1.0.0");
+        writeJavaPackage(manager.getPluginsDirectory().resolve(dependentId + ".npl"), dependentId, "1.0.0");
         writeBindings(localHome, providerId, dependentId);
 
         manager.markForUninstall(dependentId);
@@ -106,7 +106,7 @@ public final class PluginRuntimeProviderTransactionTest {
         writeRuntimeConsumerPackage(manager.getPluginsDirectory().resolve(dependentId + ".npl"), dependentId);
         writeBindings(localHome, providerId, dependentId);
         Path replacement = temporaryDirectory.resolve("java-update.npl");
-        writeApiFourPackage(replacement, dependentId, "2.0.0");
+        writeJavaPackage(replacement, dependentId, "2.0.0");
 
         manager.prepareLocalPluginInstallation(replacement, Set.of());
 
@@ -216,7 +216,7 @@ public final class PluginRuntimeProviderTransactionTest {
         PluginManager manager = new PluginManager(localHome);
         String pluginId = "dev.test.mismatched-rust-consumer";
         Path sourcePackage = temporaryDirectory.resolve("consumer.npl");
-        writeApiFourPackage(sourcePackage, pluginId, "1.0.0");
+        writeJavaPackage(sourcePackage, pluginId, "1.0.0");
         LocalPluginInspection inspection = manager.inspectStorePluginPackage(sourcePackage);
         PluginRuntimeInstallAuthorization authorization = authorizationWithContracts(Map.of(
                 pluginId,
@@ -531,7 +531,7 @@ public final class PluginRuntimeProviderTransactionTest {
         String firstDependentId = "dev.hmclce.test.bound-rust-one";
         String secondDependentId = "dev.hmclce.test.bound-rust-two";
         for (String pluginId : List.of(providerId, firstDependentId, secondDependentId)) {
-            writeApiFourPackage(manager.getPluginsDirectory().resolve(pluginId + ".npl"), pluginId, "1.0.0");
+            writeJavaPackage(manager.getPluginsDirectory().resolve(pluginId + ".npl"), pluginId, "1.0.0");
         }
         writeBindings(localHome, providerId, firstDependentId, secondDependentId);
 
@@ -555,7 +555,7 @@ public final class PluginRuntimeProviderTransactionTest {
         String firstDependentId = "dev.hmclce.test.disable-rust-one";
         String secondDependentId = "dev.hmclce.test.disable-rust-two";
         for (String pluginId : List.of(providerId, firstDependentId, secondDependentId)) {
-            writeApiFourPackage(manager.getPluginsDirectory().resolve(pluginId + ".npl"), pluginId, "1.0.0");
+            writeJavaPackage(manager.getPluginsDirectory().resolve(pluginId + ".npl"), pluginId, "1.0.0");
             manager.enablePlugin(pluginId);
             assertTrue(manager.isPluginEnabled(pluginId));
         }
@@ -582,7 +582,7 @@ public final class PluginRuntimeProviderTransactionTest {
         String firstDependentId = "dev.test.cascade-disable-rust-one";
         String secondDependentId = "dev.test.cascade-disable-rust-two";
         for (String pluginId : List.of(providerId, firstDependentId, secondDependentId)) {
-            writeApiFourPackage(manager.getPluginsDirectory().resolve(pluginId + ".npl"), pluginId, "1.0.0");
+            writeJavaPackage(manager.getPluginsDirectory().resolve(pluginId + ".npl"), pluginId, "1.0.0");
             manager.enablePlugin(pluginId);
             assertTrue(manager.isPluginEnabled(pluginId));
         }
@@ -606,11 +606,11 @@ public final class PluginRuntimeProviderTransactionTest {
         String providerId = "dev.hmclce.test.updated-runtime-host";
         String dependentId = "dev.hmclce.test.updated-rust-dependent";
         Path providerPackage = manager.getPluginsDirectory().resolve(providerId + ".npl");
-        writeApiFourPackage(providerPackage, providerId, "1.0.0");
-        writeApiFourPackage(manager.getPluginsDirectory().resolve(dependentId + ".npl"), dependentId, "1.0.0");
+        writeJavaPackage(providerPackage, providerId, "1.0.0");
+        writeJavaPackage(manager.getPluginsDirectory().resolve(dependentId + ".npl"), dependentId, "1.0.0");
         writeBindings(localHome, providerId, dependentId);
         Path replacement = temporaryDirectory.resolve("incompatible-runtime-host.npl");
-        writeApiFourPackage(replacement, providerId, "2.0.0");
+        writeJavaPackage(replacement, providerId, "2.0.0");
 
         IOException exception = assertThrows(
                 IOException.class,
@@ -781,14 +781,14 @@ public final class PluginRuntimeProviderTransactionTest {
                 """);
     }
 
-    /// Writes a minimal API-v4 Java package.
+    /// Writes a minimal schema-v5 Java package.
     ///
     /// @param target target package path
     /// @param pluginId plugin ID
     /// @param version package version
     /// @throws IOException if package creation fails
-    private static void writeApiFourPackage(Path target, String pluginId, String version) throws IOException {
-        writePackage(target, pluginId, version, "");
+    private static void writeJavaPackage(Path target, String pluginId, String version) throws IOException {
+        writePackage(target, pluginId, version, "\"runtime\": \"java\", \"abi\": 1");
     }
 
     /// Writes one executable test package with optional schema-v5 declarations.
@@ -796,7 +796,7 @@ public final class PluginRuntimeProviderTransactionTest {
     /// @param target target package path
     /// @param pluginId plugin ID
     /// @param version package version
-    /// @param declarations schema-v5 declarations, or blank for API v4
+    /// @param declarations schema-v5 declarations
     /// @throws IOException if package creation fails
     private static void writePackage(Path target, String pluginId, String version, String declarations)
             throws IOException {
@@ -808,7 +808,7 @@ public final class PluginRuntimeProviderTransactionTest {
     /// @param target target package path
     /// @param pluginId plugin ID
     /// @param version package version
-    /// @param declarations schema-v5 declarations, or blank for API v4
+    /// @param declarations schema-v5 declarations
     /// @param dependenciesJson concrete dependency array JSON
     /// @throws IOException if package creation fails
     private static void writePackage(
@@ -819,19 +819,17 @@ public final class PluginRuntimeProviderTransactionTest {
             String dependenciesJson
     ) throws IOException {
         Files.createDirectories(Objects.requireNonNull(target.getParent()));
-        boolean schemaFive = !declarations.isBlank();
         String manifest = """
-                {"schemaVersion": %s, "id": "%s", "name": "Runtime Transaction Test",
+                {"schemaVersion": 5, "id": "%s", "name": "Runtime Transaction Test",
                  "version": "%s", "type": "java", "entrypoint": "%s",
                  "permissions": [], "requiredPermissions": [], "launcherVersion": "*",
-                 "dependencies": %s%s}
+                 "dependencies": %s,%s}
                 """.formatted(
-                schemaFive ? 5 : 4,
                 pluginId,
                 version,
                 PackagedTestPlugin.class.getName(),
                 dependenciesJson,
-                schemaFive ? "," + declarations : ""
+                declarations
         );
         try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(target))) {
             writeEntry(output, "plugin.json", manifest.getBytes(StandardCharsets.UTF_8));

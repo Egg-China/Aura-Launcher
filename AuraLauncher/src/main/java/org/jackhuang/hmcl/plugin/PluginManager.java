@@ -567,8 +567,7 @@ public final class PluginManager {
                     .map(candidate -> candidate.manifest)
                     .filter(manifest -> !manifest.getId().equals(pluginId))
                     .filter(manifest -> !pendingUninstall.contains(manifest.getId()))
-                    .filter(manifest -> manifest.getSchemaVersion()
-                            >= PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION)
+                    .filter(manifest -> PluginManifest.isExecutableSchema(manifest.getSchemaVersion()))
                     .filter(manifest -> manifest.getDependencies().contains(pluginId))
                     .map(PluginManifest::getId)
                     .sorted()
@@ -1990,7 +1989,7 @@ public final class PluginManager {
         if (requireAvailableExternalRuntime || PluginRuntimeTypes.JAVA.equals(manifest.getRuntime())) {
             requireCompatible(manifest);
         }
-        if (manifest.getSchemaVersion() >= PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION
+        if (PluginManifest.isExecutableSchema(manifest.getSchemaVersion())
                 && !PluginManifest.isCanonicalExecutableId(manifest.getId())) {
             throw new IOException("Executable plugin ID must be portable canonical lower-case text: "
                     + manifest.getId());
@@ -3812,8 +3811,9 @@ public final class PluginManager {
         if (manifest == null) {
             throw new IOException("Missing installed plugin in quarantine restoration closure: " + pluginId);
         }
-        if (manifest.getSchemaVersion() < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION) {
-            throw new IOException("Legacy plugin cannot be restored to execution: " + pluginId);
+        if (!PluginManifest.isExecutableSchema(manifest.getSchemaVersion())) {
+            throw new IOException(PluginManifest.executableSchemaDiagnostic(manifest.getSchemaVersion())
+                    + "; plugin cannot be restored to execution: " + pluginId);
         }
         @Nullable RuntimeProviderBinding runtimeBinding = runtimeBindings.get(pluginId);
         if (runtimeBinding != null) {

@@ -432,8 +432,7 @@ final class PluginPermissionManagementPage extends BorderPane implements Decorat
     /// @param schemaVersion plugin manifest schema generation
     /// @return whether lifecycle and permission controls may operate on the artifact
     static boolean isExecutableSchema(int schemaVersion) {
-        return schemaVersion >= PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION
-                && schemaVersion <= PluginManifest.CURRENT_SCHEMA_VERSION;
+        return PluginManifest.isExecutableSchema(schemaVersion);
     }
 
     /// Adds an exact runtime diagnostic below stable user-facing guidance when one is available.

@@ -213,13 +213,13 @@ public final class PluginCompatibilityEvaluatorTest {
         assertStatus(PluginCompatibilityStatus.COMPATIBLE, evaluator.evaluate(requirements, "26.8"));
     }
 
-    /// Rejects manifest schemas below or above the launcher's executable range.
+    /// Rejects schema v4 and future manifests outside Aura Launcher's schema-v5 executable boundary.
     @Test
     public void rejectUnsupportedManifestSchema() {
         PluginCompatibilityEvaluator evaluator = new PluginCompatibilityEvaluator(
                 new RuntimeProviderRegistry(), PluginPlatformTarget.parse("windows"));
         PluginCompatibilityRequirements legacy = new PluginCompatibilityRequirements(
-                3, "*", PluginRuntimeTypes.JAVA, PluginAbi.ABI_1, List.of());
+                4, "*", PluginRuntimeTypes.JAVA, PluginAbi.ABI_1, List.of());
         PluginCompatibilityRequirements future = new PluginCompatibilityRequirements(
                 6, "*", PluginRuntimeTypes.JAVA, PluginAbi.ABI_1, List.of());
 
@@ -228,9 +228,9 @@ public final class PluginCompatibilityEvaluatorTest {
 
         assertStatus(PluginCompatibilityStatus.UNSUPPORTED_SCHEMA, legacyResult);
         assertStatus(PluginCompatibilityStatus.UNSUPPORTED_SCHEMA, futureResult);
-        assertTrue(legacyResult.detail().contains("3"));
+        assertEquals("Aura Launcher requires plugin manifest schema v5; found v4", legacyResult.detail());
         assertTrue(futureResult.detail().contains("6"));
-        assertTrue(legacyResult.detail().contains("4..5"));
+        assertEquals("Aura Launcher requires plugin manifest schema v5; found v6", futureResult.detail());
     }
 
     /// Rejects a launcher version that does not satisfy the package constraint.

@@ -139,13 +139,13 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @throws Exception if package creation or cache preparation fails ucepectedly
     @Test
     public void rejectPackageSwapAfterAuthorizationSnapshot(@TempDir Path temporaryDirectory) throws Exception {
-        Path packageFile = writePluginPackage(temporaryDirectory, 4, "1.0.1", true);
+        Path packageFile = writePluginPackage(temporaryDirectory, 5, "1.0.1", true);
         try (HmclMixinBootstrap.BootstrapCandidate candidate =
                      HmclMixinBootstrap.capturePluginPackage(packageFile)) {
             writeRawPluginPackage(
                     temporaryDirectory,
                     PLUGIN_ID,
-                    requiredSchemaFourManifest(
+                    requiredSchemaFiveManifest(
                             PLUGIN_ID,
                             "1.0.1",
                             "[\"mixin\"]",
@@ -175,6 +175,17 @@ public final class HmclMixinBootstrapPermissionTest {
     @Test
     public void rejectLegacyMixinWithoutPermissionDeclaration(@TempDir Path temporaryDirectory) throws Exception {
         writePluginPackage(temporaryDirectory, 2, "1.0.0", false);
+
+        assertMixinDenied(temporaryDirectory);
+    }
+
+    /// Rejects a structurally valid schema-v4 Mixin package at Aura's executable boundary.
+    ///
+    /// @param temporaryDirectory isolated launcher home
+    /// @throws Exception if the package fixture cannot be created or inspected
+    @Test
+    public void rejectSchemaFourMixinPackage(@TempDir Path temporaryDirectory) throws Exception {
+        writePluginPackage(temporaryDirectory, 4, "1.0.0", true);
 
         assertMixinDenied(temporaryDirectory);
     }
@@ -266,13 +277,13 @@ public final class HmclMixinBootstrapPermissionTest {
         assertMixinDenied(temporaryDirectory, evaluator);
     }
 
-    /// Rejects a schema-v3 Mixin package until the user records an explicit decision for it.
+    /// Rejects a schema-v5 Mixin package until the user records an explicit decision for it.
     ///
     /// @param temporaryDirectory isolated launcher home
     /// @throws Exception if the package fixture cannot be created or inspected
     @Test
     public void rejectDeclaredMixinWithoutGrant(@TempDir Path temporaryDirectory) throws Exception {
-        writePluginPackage(temporaryDirectory, 4, "1.0.0", true);
+        writePluginPackage(temporaryDirectory, 5, "1.0.0", true);
 
         assertMixinDenied(temporaryDirectory);
     }
@@ -283,7 +294,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @throws Exception if the package fixture or permission document cannot be created
     @Test
     public void rejectMixinGrantForDifferentDigest(@TempDir Path temporaryDirectory) throws Exception {
-        writePluginPackage(temporaryDirectory, 4, "1.0.0", true);
+        writePluginPackage(temporaryDirectory, 5, "1.0.0", true);
         writeMixinGrant(temporaryDirectory, PLUGIN_ID, "1.0.0", "0".repeat(64));
 
         assertMixinDenied(temporaryDirectory);
@@ -295,7 +306,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @throws Exception if the package fixture, permission document, or cache cannot be created
     @Test
     public void allowExactGrantedMixinArtifact(@TempDir Path temporaryDirectory) throws Exception {
-        Path packageFile = writePluginPackage(temporaryDirectory, 4, "1.0.1", true);
+        Path packageFile = writePluginPackage(temporaryDirectory, 5, "1.0.1", true);
         writeMixinGrant(
                 temporaryDirectory,
                 PLUGIN_ID,
@@ -319,7 +330,7 @@ public final class HmclMixinBootstrapPermissionTest {
     public void blockRevokedCertifiedArtifactBeforeAgentClasspath(
             @TempDir Path temporaryDirectory
     ) throws Exception {
-        Path packageFile = writePluginPackage(temporaryDirectory, 4, "1.0.1", true);
+        Path packageFile = writePluginPackage(temporaryDirectory, 5, "1.0.1", true);
         String sha256 = PluginPackageVersions.calculateSha256(packageFile);
         writeMixinGrant(temporaryDirectory, PLUGIN_ID, "1.0.1", sha256);
         PluginRuntimeTrustGuard runtimeTrustGuard = PluginRuntimeTrustTestSupport.revokedArtifactGuard(
@@ -337,19 +348,19 @@ public final class HmclMixinBootstrapPermissionTest {
         assertTrue(configuration.registrations().isEmpty());
     }
 
-    /// Allows a schema-v4 Mixin artifact when every required permission is granted even though an optional
+    /// Allows a schema-v5 Mixin artifact when every required permission is granted even though an optional
     /// capability remains denied.
     ///
     /// @param temporaryDirectory isolated launcher home
     /// @throws Exception if package, state, permission, or cache creation fails
     @Test
-    public void allowSchemaFourMixinWithDeniedOptionalPermission(
+    public void allowSchemaFiveMixinWithDeniedOptionalPermission(
             @TempDir Path temporaryDirectory
     ) throws Exception {
         Path packageFile = writeRawPluginPackage(
                 temporaryDirectory,
                 PLUGIN_ID,
-                schemaFourManifest(
+                schemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\",\"launcher-ui\"]",
@@ -375,18 +386,18 @@ public final class HmclMixinBootstrapPermissionTest {
         assertEquals(List.of(PLUGIN_ID), configuration.activePluginIds());
     }
 
-    /// Rejects a schema-v4 Mixin artifact when its exact decision omits any required permission.
+    /// Rejects a schema-v5 Mixin artifact when its exact decision omits any required permission.
     ///
     /// @param temporaryDirectory isolated launcher home
     /// @throws Exception if package, state, or permission creation fails
     @Test
-    public void rejectSchemaFourMixinWithMissingRequiredPermission(
+    public void rejectSchemaFiveMixinWithMissingRequiredPermission(
             @TempDir Path temporaryDirectory
     ) throws Exception {
         Path packageFile = writeRawPluginPackage(
                 temporaryDirectory,
                 PLUGIN_ID,
-                schemaFourManifest(
+                schemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\",\"launcher-ui\"]",
@@ -408,18 +419,18 @@ public final class HmclMixinBootstrapPermissionTest {
         assertMixinDenied(temporaryDirectory);
     }
 
-    /// Blocks a Mixin owner when a schema-v4 ordinary dependency has no exact decision for its required capability.
+    /// Blocks a Mixin owner when a schema-v5 ordinary dependency has no exact decision for its required capability.
     ///
     /// @param temporaryDirectory isolated launcher home
     /// @throws Exception if package, state, permission, or startup preparation fails
     @Test
-    public void rejectMixinWhenSchemaFourDependencyRequiredPermissionIsMissing(
+    public void rejectMixinWhenSchemaFiveDependencyRequiredPermissionIsMissing(
             @TempDir Path temporaryDirectory
     ) throws Exception {
         writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                schemaFourManifest(
+                schemaFiveManifest(
                         DEPENDENCY_ID,
                         "1.0.0",
                         "[\"filesystem\"]",
@@ -446,12 +457,12 @@ public final class HmclMixinBootstrapPermissionTest {
         assertMixinDenied(temporaryDirectory);
     }
 
-    /// Applies schema-v4 launcher constraints identically to formal and snapshot launcher versions.
+    /// Applies schema-v5 launcher constraints identically to formal and snapshot launcher versions.
     ///
     /// @throws IOException if the generated manifest is invalid
     @Test
-    public void evaluateSchemaFourLauncherConstraint() throws IOException {
-        PluginManifest manifest = PluginManifest.fromJson(new StringReader(schemaFourManifest(
+    public void evaluateSchemaFiveLauncherConstraint() throws IOException {
+        PluginManifest manifest = PluginManifest.fromJson(new StringReader(schemaFiveManifest(
                 PLUGIN_ID,
                 "1.0.1",
                 "[\"mixin\"]",
@@ -480,13 +491,13 @@ public final class HmclMixinBootstrapPermissionTest {
         writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(DEPENDENCY_ID, "1.0.0", "[]", "[]", ""),
+                requiredSchemaFiveManifest(DEPENDENCY_ID, "1.0.0", "[]", "[]", ""),
                 List.of(MIXIN_CONFIG)
         );
         Path ownerPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 PLUGIN_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\"]",
@@ -520,7 +531,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path dependencyPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         DEPENDENCY_ID,
                         "1.0.0",
                         "[\"mixin\"]",
@@ -592,7 +603,7 @@ public final class HmclMixinBootstrapPermissionTest {
         writeRawPluginPackage(
                 temporaryDirectory,
                 NON_CANONICAL_DEPENDENCY_ID,
-                requiredSchemaFourManifest(NON_CANONICAL_DEPENDENCY_ID, "1.0.0", "[]", "[]", ""),
+                requiredSchemaFiveManifest(NON_CANONICAL_DEPENDENCY_ID, "1.0.0", "[]", "[]", ""),
                 List.of()
         );
         Path ownerPackage = writeMixinOwnerWithDependency(
@@ -620,7 +631,7 @@ public final class HmclMixinBootstrapPermissionTest {
         writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         DEPENDENCY_ID,
                         "1.0.0",
                         "[]",
@@ -654,7 +665,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path dependencyPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         DEPENDENCY_ID,
                         "1.0.0",
                         "[\"mixin\",\"launcher-ui\"]",
@@ -709,7 +720,7 @@ public final class HmclMixinBootstrapPermissionTest {
         writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(DEPENDENCY_ID, "1.0.0", "[]", "[]", ""),
+                requiredSchemaFiveManifest(DEPENDENCY_ID, "1.0.0", "[]", "[]", ""),
                 List.of()
         );
         Path ownerPackage = writeMixinOwnerWithDependency(
@@ -737,7 +748,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path ownerPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 PLUGIN_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\"]",
@@ -749,7 +760,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path dependencyPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         DEPENDENCY_ID,
                         "1.0.0",
                         "[\"mixin\"]",
@@ -782,7 +793,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path packageFile = writeRawPluginPackage(
                 temporaryDirectory,
                 PLUGIN_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\"]",
@@ -816,7 +827,7 @@ public final class HmclMixinBootstrapPermissionTest {
     public void rejectHostClasspathAgentClass(@TempDir Path temporaryDirectory) throws Exception {
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                   "schemaVersion": 5,
                   "id": "%s",
                   "name": "Host Class Collision",
                   "version": "1.0.1",
@@ -824,8 +835,10 @@ public final class HmclMixinBootstrapPermissionTest {
                   "entrypoint": "%s",
                   "permissions": ["mixin"],
                   "requiredPermissions": ["mixin"],
-                  "launcherVersion": "*",
-                  "dependencies": [],
+                   "launcherVersion": "*",
+                   "runtime": "java",
+                   "abi": 1,
+                   "dependencies": [],
                   "mixins": ["%s"]
                 }
                 """.formatted(PLUGIN_ID, HOST_ENTRYPOINT, MIXIN_CONFIG);
@@ -873,7 +886,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path ownerPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 PLUGIN_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\"]",
@@ -887,7 +900,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path dependencyPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         DEPENDENCY_ID,
                         "1.0.0",
                         "[\"mixin\"]",
@@ -931,7 +944,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path ownerPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 PLUGIN_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\"]",
@@ -945,7 +958,7 @@ public final class HmclMixinBootstrapPermissionTest {
         Path dependencyPackage = writeRawPluginPackage(
                 temporaryDirectory,
                 DEPENDENCY_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         DEPENDENCY_ID,
                         "1.0.0",
                         "[\"mixin\"]",
@@ -977,7 +990,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @throws Exception if package, permission, cache, or repair creation fails
     @Test
     public void repairTamperedMixinCache(@TempDir Path temporaryDirectory) throws Exception {
-        Path packageFile = writePluginPackage(temporaryDirectory, 4, "1.0.1", true);
+        Path packageFile = writePluginPackage(temporaryDirectory, 5, "1.0.1", true);
         writeMixinGrant(
                 temporaryDirectory,
                 PLUGIN_ID,
@@ -1007,7 +1020,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @throws Exception if package creation or startup inspection fails
     @Test
     public void rejectMixinWhenPermissionDocumentIsMalformed(@TempDir Path temporaryDirectory) throws Exception {
-        writePluginPackage(temporaryDirectory, 4, "1.0.0", true);
+        writePluginPackage(temporaryDirectory, 5, "1.0.0", true);
         Files.writeString(
                 temporaryDirectory.resolve("plugin-permissions.json"),
                 "{",
@@ -1023,7 +1036,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @throws Exception if package, permission, or state fixture creation fails
     @Test
     public void rejectMixinWhenPluginStateDocumentIsOversized(@TempDir Path temporaryDirectory) throws Exception {
-        Path packageFile = writePluginPackage(temporaryDirectory, 4, "1.0.1", true);
+        Path packageFile = writePluginPackage(temporaryDirectory, 5, "1.0.1", true);
         writeMixinGrant(
                 temporaryDirectory,
                 PLUGIN_ID,
@@ -1116,6 +1129,9 @@ public final class HmclMixinBootstrapPermissionTest {
         } else {
             permissionProperty = declareMixinPermission ? ",\n  \"permissions\": [\"mixin\"]" : "";
         }
+        if (schemaVersion >= 5) {
+            permissionProperty += ",\n  \"runtime\": \"java\",\n  \"abi\": 1";
+        }
         String manifest = """
                 {
                   "schemaVersion": %s,
@@ -1139,7 +1155,7 @@ public final class HmclMixinBootstrapPermissionTest {
         return packageFile;
     }
 
-    /// Builds a complete API-v4 manifest whose declared permissions are all required.
+    /// Builds a complete schema-v5 manifest whose declared permissions are all required.
     ///
     /// @param pluginId manifest plugin ID
     /// @param version manifest version
@@ -1147,7 +1163,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @param dependenciesJson dependency array JSON
     /// @param optionalProperties additional comma-prefixed root properties
     /// @return complete manifest JSON
-    private static String requiredSchemaFourManifest(
+    private static String requiredSchemaFiveManifest(
             String pluginId,
             String version,
             String permissionsJson,
@@ -1156,7 +1172,7 @@ public final class HmclMixinBootstrapPermissionTest {
     ) {
         return """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Mixin Permission Test",
                   "version": "%s",
@@ -1165,6 +1181,8 @@ public final class HmclMixinBootstrapPermissionTest {
                   "permissions": %s,
                   "requiredPermissions": %s,
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": %s%s
                 }
                 """.formatted(
@@ -1178,7 +1196,7 @@ public final class HmclMixinBootstrapPermissionTest {
                 );
     }
 
-    /// Builds a complete schema-v4 manifest from caller-provided JSON fragments.
+    /// Builds a complete schema-v5 manifest from caller-provided JSON fragments.
     ///
     /// @param pluginId manifest plugin ID
     /// @param version manifest version
@@ -1188,7 +1206,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @param launcherVersion launcher compatibility constraint
     /// @param optionalProperties additional comma-prefixed root properties
     /// @return complete manifest JSON
-    private static String schemaFourManifest(
+    private static String schemaFiveManifest(
             String pluginId,
             String version,
             String permissionsJson,
@@ -1199,7 +1217,7 @@ public final class HmclMixinBootstrapPermissionTest {
     ) {
         return """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Mixin Permission Test V4",
                   "version": "%s",
@@ -1208,6 +1226,8 @@ public final class HmclMixinBootstrapPermissionTest {
                   "permissions": %s,
                   "requiredPermissions": %s,
                   "launcherVersion": "%s",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": %s%s
                 }
                 """.formatted(
@@ -1256,7 +1276,7 @@ public final class HmclMixinBootstrapPermissionTest {
         return writeRawPluginPackage(
                 localHome,
                 PLUGIN_ID,
-                requiredSchemaFourManifest(
+                requiredSchemaFiveManifest(
                         PLUGIN_ID,
                         "1.0.1",
                         "[\"mixin\"]",
@@ -1586,7 +1606,7 @@ public final class HmclMixinBootstrapPermissionTest {
     /// @param phase serialized transaction phase
     /// @throws IOException if fixture creation or Bootstrap preparation fails
     private static void assertTransactionBlocksBootstrap(Path localHome, String phase) throws IOException {
-        Path packageFile = writePluginPackage(localHome, 4, "1.0.1", true);
+        Path packageFile = writePluginPackage(localHome, 5, "1.0.1", true);
         writeMixinGrant(
                 localHome,
                 PLUGIN_ID,

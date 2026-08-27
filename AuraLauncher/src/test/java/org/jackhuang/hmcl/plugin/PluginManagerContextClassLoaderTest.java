@@ -76,7 +76,7 @@ public final class PluginManagerContextClassLoaderTest {
         }
     }
 
-    /// Writes one API-v4 package with package-owned lifecycle, service contract, provider, and descriptor bytes.
+    /// Writes one schema-v5 package with package-owned lifecycle, service contract, provider, and descriptor bytes.
     ///
     /// @param target target `.npl` path
     /// @throws IOException if the package cannot be written
@@ -84,7 +84,7 @@ public final class PluginManagerContextClassLoaderTest {
         Files.createDirectories(Objects.requireNonNull(target.getParent()));
         String manifest = """
                 {
-                  "schemaVersion": 4,
+                  "schemaVersion": 5,
                   "id": "%s",
                   "name": "Context Class Loader Test",
                   "version": "1.0.0",
@@ -93,6 +93,8 @@ public final class PluginManagerContextClassLoaderTest {
                   "permissions": [],
                   "requiredPermissions": [],
                   "launcherVersion": "*",
+                  "runtime": "java",
+                  "abi": 1,
                   "dependencies": []
                 }
                 """.formatted(PLUGIN_ID, ContextClassLoaderPlugin.class.getName());

@@ -629,9 +629,9 @@ public final class PluginStoreDependencyResolver {
             }
         }
 
-        // Only executable API-v4 plugins can constrain the active dependency graph.
+        // Only Aura-executable schema-v5 plugins can constrain the active dependency graph.
         for (PluginManifest installed : installedManifests.values()) {
-            if (installed.getSchemaVersion() < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION
+            if (!PluginManifest.isExecutableSchema(installed.getSchemaVersion())
                     || requirements.containsKey(installed.getId())) {
                 continue;
             }
@@ -663,7 +663,7 @@ public final class PluginStoreDependencyResolver {
         @Nullable PluginManifest installed = installedManifests.get(pluginId);
         boolean installedVersionMatches = installed != null && matchesAll(installed.getVersion(), requirements);
         boolean installedArtifactMayBeReused = installed != null
-                && installed.getSchemaVersion() >= PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION
+                && PluginManifest.isExecutableSchema(installed.getSchemaVersion())
                 && installedVersionMatches
                 && reusableInstalledPluginIds.contains(pluginId);
         if (installedArtifactMayBeReused) {
@@ -904,7 +904,7 @@ public final class PluginStoreDependencyResolver {
         resolved.forEach((id, entry) -> effectiveVersions.put(id, entry.getVersion()));
 
         for (PluginManifest installed : installedManifests.values()) {
-            if (installed.getSchemaVersion() < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION) {
+            if (!PluginManifest.isExecutableSchema(installed.getSchemaVersion())) {
                 continue;
             }
             if (resolved.containsKey(installed.getId())

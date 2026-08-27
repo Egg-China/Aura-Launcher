@@ -26,7 +26,8 @@ import java.util.Set;
 /// Applies the persisted, artifact-bound permission policy before any plugin Mixin can run.
 ///
 /// This guard deliberately reuses the regular permission store so startup and runtime decisions interpret the same
-/// fail-closed document schema. Only API-v4 artifacts are eligible, and they require every effective required grant
+/// fail-closed document schema. Only Aura-executable schema-v5 artifacts are eligible, and they require every
+/// effective required grant
 /// while denied optional requests remain unavailable without blocking startup.
 @NotNullByDefault
 public final class PluginMixinPermissionGuard {
@@ -48,7 +49,7 @@ public final class PluginMixinPermissionGuard {
     /// @param packageSha256 lower-case SHA-256 digest of the complete `.npl` package
     /// @return whether the exact executable artifact may contribute Mixin transformations
     public boolean isGranted(PluginManifest manifest, String packageSha256) {
-        if (manifest.getSchemaVersion() < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION
+        if (!PluginManifest.isExecutableSchema(manifest.getSchemaVersion())
                 || !manifest.hasMixins()
                 || !manifest.isPermissionRequired(PluginPermission.MIXIN)) {
             return false;
@@ -59,14 +60,15 @@ public final class PluginMixinPermissionGuard {
 
     /// Returns whether one exact executable artifact has every effective required permission.
     ///
-    /// Every API-v4 artifact relies on exact-artifact stored grants and its explicit required subset. Earlier schema
+    /// Every executable schema-v5 artifact relies on exact-artifact stored grants and its explicit required subset.
+    /// Earlier schema
     /// versions, missing decisions, and damaged permission state remain fail-closed during premain.
     ///
     /// @param manifest validated package manifest
     /// @param packageSha256 lower-case SHA-256 digest of the complete `.npl` package
     /// @return whether every effective required permission is available
     public boolean hasRequiredPermissions(PluginManifest manifest, String packageSha256) {
-        if (manifest.getSchemaVersion() < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION) {
+        if (!PluginManifest.isExecutableSchema(manifest.getSchemaVersion())) {
             return false;
         }
 

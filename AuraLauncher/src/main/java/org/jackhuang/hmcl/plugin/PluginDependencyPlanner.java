@@ -110,7 +110,7 @@ final class PluginDependencyPlanner {
             if (replacementIds.contains(manifest.getId())) {
                 continue;
             }
-            if (manifest.getSchemaVersion() < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION) {
+            if (!PluginManifest.isExecutableSchema(manifest.getSchemaVersion())) {
                 continue;
             }
             for (PluginDependency dependency : manifest.getPluginDependencies()) {
@@ -182,8 +182,7 @@ final class PluginDependencyPlanner {
                 installed.values().stream()
                 .filter(manifest -> !manifest.getId().equals(pluginId))
                 .filter(manifest -> !pendingUninstall.contains(manifest.getId()))
-                .filter(manifest -> manifest.getSchemaVersion()
-                        >= PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION)
+                .filter(manifest -> PluginManifest.isExecutableSchema(manifest.getSchemaVersion()))
                 .filter(manifest -> manifest.getDependencies().contains(pluginId))
                 .map(PluginManifest::getId),
                 runtimeBindings.values().stream()
@@ -245,7 +244,7 @@ final class PluginDependencyPlanner {
                 throw new IOException("Plugin " + pluginId + " requires missing dependency "
                         + dependency.getId());
             }
-            if (installedDependency.getSchemaVersion() < PluginManifest.MIN_EXECUTABLE_SCHEMA_VERSION) {
+            if (!PluginManifest.isExecutableSchema(installedDependency.getSchemaVersion())) {
                 throw new IOException("Plugin " + pluginId + " requires legacy dependency "
                         + dependency.getId() + " whose API version cannot execute");
             }

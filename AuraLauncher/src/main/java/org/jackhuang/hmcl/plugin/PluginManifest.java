@@ -45,14 +45,41 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/// Describes one HMCL plugin package through its root `plugin.json` file.
+/// Describes one Aura-compatible plugin package through its root `plugin.json` file.
 @NotNullByDefault
 public final class PluginManifest {
-    /// Current manifest schema understood by HMCL and the plugin SDK.
+    /// Current manifest schema understood by Aura Launcher and the schema-v5 plugin SDK.
     public static final int CURRENT_SCHEMA_VERSION = 5;
 
-    /// Only manifest schema whose plugin code may install or execute.
-    public static final int MIN_EXECUTABLE_SCHEMA_VERSION = 4;
+    /// Only manifest schema whose plugin code may install or execute in Aura Launcher.
+    public static final int MIN_EXECUTABLE_SCHEMA_VERSION = 5;
+
+    /// Returns whether a manifest schema may install or execute in Aura Launcher.
+    ///
+    /// @param schemaVersion plugin manifest schema generation
+    /// @return whether the schema belongs to Aura's executable range
+    public static boolean isExecutableSchema(int schemaVersion) {
+        return schemaVersion >= MIN_EXECUTABLE_SCHEMA_VERSION
+                && schemaVersion <= CURRENT_SCHEMA_VERSION;
+    }
+
+    /// Returns the stable Aura-specific diagnostic for a non-executable manifest schema.
+    ///
+    /// @param schemaVersion rejected plugin manifest schema generation
+    /// @return diagnostic naming the required and discovered schemas
+    public static String executableSchemaDiagnostic(int schemaVersion) {
+        return "Aura Launcher requires plugin manifest schema v5; found v" + schemaVersion;
+    }
+
+    /// Rejects a manifest schema that cannot install or execute in Aura Launcher.
+    ///
+    /// @param schemaVersion plugin manifest schema generation
+    /// @throws IOException if the schema is outside Aura's executable range
+    public static void requireExecutableSchema(int schemaVersion) throws IOException {
+        if (!isExecutableSchema(schemaVersion)) {
+            throw new IOException(executableSchemaDiagnostic(schemaVersion));
+        }
+    }
 
     /// Pattern accepted for plugin IDs and dependency IDs.
     private static final Pattern ID_PATTERN = Pattern.compile("[a-zA-Z0-9][a-zA-Z0-9._-]{1,127}");
