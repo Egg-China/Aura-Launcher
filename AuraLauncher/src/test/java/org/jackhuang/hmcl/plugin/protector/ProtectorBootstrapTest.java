@@ -19,6 +19,7 @@ package org.jackhuang.hmcl.plugin.protector;
 
 import org.jackhuang.hmcl.EntryPoint;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -32,16 +33,27 @@ import java.io.OutputStream;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -130,6 +142,53 @@ public final class ProtectorBootstrapTest {
     public void closingWindowsPipeWriteIsNotRetryable() {
         assertFalse(ProtectorBootstrap.isRetryablePipeWriteError(232));
         assertTrue(ProtectorBootstrap.isRetryablePipeWriteError(231));
+    }
+
+    /// Allows one socket connection to write while another thread remains blocked reading it.
+    ///
+    /// @throws Exception if socket setup, reflection, or concurrent I/O fails
+    @Test
+    @Timeout(10)
+    public void socketConnectionWritesWhileReadIsBlocked() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try (ServerSocketChannel server = ServerSocketChannel.open()) {
+            server.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+            try (
+                    SocketChannel client = SocketChannel.open(server.getLocalAddress());
+                    SocketChannel peer = server.accept();
+                    ProtectorBootstrap.LocalConnection connection = socketConnection(client)
+            ) {
+                AtomicReference<@Nullable Thread> readerThread = new AtomicReference<>();
+                CountDownLatch readerStarted = new CountDownLatch(1);
+                Future<Integer> read = executor.submit(() -> {
+                    readerThread.set(Thread.currentThread());
+                    readerStarted.countDown();
+                    return connection.input().read();
+                });
+                try {
+                    assertTrue(readerStarted.await(2, TimeUnit.SECONDS));
+                    awaitSocketRead(Objects.requireNonNull(readerThread.get()));
+
+                    Future<Integer> write = executor.submit(() -> {
+                        connection.output().write(0x5a);
+                        return 1;
+                    });
+                    try {
+                        write.get(2, TimeUnit.SECONDS);
+                        ByteBuffer received = ByteBuffer.allocate(1);
+                        assertEquals(1, peer.read(received));
+                        assertEquals(0x5a, Byte.toUnsignedInt(received.get(0)));
+                    } finally {
+                        write.cancel(true);
+                    }
+                } finally {
+                    read.cancel(true);
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     /// Uses a first-instance pipe and an explicit owner-only security descriptor on Windows.
@@ -707,6 +766,50 @@ public final class ProtectorBootstrapTest {
                 ProtectorProtocol.HARD_STARTUP_TIMEOUT,
                 ProtectorProtocol.TERMINATION_GRACE_TIMEOUT
         );
+    }
+
+    /// Reflectively wraps a TCP socket through the production Unix socket connection adapter.
+    ///
+    /// @param channel connected TCP socket
+    /// @return production bidirectional connection
+    /// @throws Exception if the private adapter cannot be invoked
+    private static ProtectorBootstrap.LocalConnection socketConnection(SocketChannel channel) throws Exception {
+        Class<?> serverType = Class.forName(
+                "org.jackhuang.hmcl.plugin.protector.ProtectorBootstrap$UnixSocketServer"
+        );
+        Method adapter = serverType.getDeclaredMethod("socketConnection", SocketChannel.class);
+        adapter.setAccessible(true);
+        try {
+            return (ProtectorBootstrap.LocalConnection) adapter.invoke(null, channel);
+        } catch (InvocationTargetException exception) {
+            Throwable cause = Objects.requireNonNull(exception.getCause());
+            if (cause instanceof Exception invocationFailure) {
+                throw invocationFailure;
+            }
+            if (cause instanceof Error invocationError) {
+                throw invocationError;
+            }
+            throw new IllegalStateException("Socket connection adaptation failed", cause);
+        }
+    }
+
+    /// Waits until one reader has entered the connected socket's blocking read operation.
+    ///
+    /// @param reader socket reader thread
+    /// @throws InterruptedException if the test worker is interrupted
+    private static void awaitSocketRead(Thread reader) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        while (System.nanoTime() < deadline) {
+            for (StackTraceElement frame : reader.getStackTrace()) {
+                if (frame.getClassName().equals("sun.nio.ch.SocketDispatcher")
+                        && frame.getMethodName().equals("read")) {
+                    return;
+                }
+            }
+            Thread.sleep(10L);
+        }
+        throw new AssertionError("Reader did not enter the socket read operation: "
+                + Arrays.toString(reader.getStackTrace()));
     }
 
     /// Runs one fixture through the same local transport and process supervision used by production entry.

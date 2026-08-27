@@ -32,33 +32,7 @@ jobs:
           cache-cleanup: never
       - name: Verify xvfb
         run: command -v xvfb-run
-      - name: Verify Protector supervision
-        timeout-minutes: 5
-        shell: bash
-        run: |
-          set -euo pipefail
-          xvfb-run -a ./gradlew :AuraLauncher:test \
-            --tests org.jackhuang.hmcl.plugin.protector.ProtectorBootstrapTest.readyLeavesNoRecoveryRecord \
-            --no-daemon --stacktrace &
-          build_pid=$!
-          for _ in $(seq 1 120); do
-            if ! kill -0 "$build_pid" 2>/dev/null; then
-              wait "$build_pid"
-              exit $?
-            fi
-            sleep 1
-          done
-          echo "::group::Java process inventory"
-          jps -lv || true
-          echo "::endgroup::"
-          for pid in $(jps -q); do
-            echo "::group::Thread dump for Java PID $pid"
-            jcmd "$pid" Thread.print || true
-            echo "::endgroup::"
-          done
-          exit 124
       - name: Build and test
-        timeout-minutes: 20
         run: xvfb-run -a ./gradlew build --no-daemon --parallel --stacktrace
         env:
           MICROSOFT_AUTH_ID: ${{ secrets.CLIENT_ID }}

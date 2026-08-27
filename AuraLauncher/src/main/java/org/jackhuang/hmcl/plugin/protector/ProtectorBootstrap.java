@@ -36,7 +36,7 @@ import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
-import java.nio.channels.Channels;
+import java.nio.ByteBuffer;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
@@ -1038,10 +1038,89 @@ public final class ProtectorBootstrap {
         /// @return bidirectional connection
         private static LocalConnection socketConnection(SocketChannel channel) {
             return new LocalConnection(
-                    Channels.newInputStream(channel),
-                    Channels.newOutputStream(channel),
+                    new SocketChannelInputStream(channel),
+                    new SocketChannelOutputStream(channel),
                     channel
             );
+        }
+    }
+
+    /// Blocking InputStream that reads directly from one connected socket channel.
+    @NotNullByDefault
+    private static final class SocketChannelInputStream extends InputStream {
+        /// Borrowed socket channel owned by its connection.
+        private final SocketChannel channel;
+
+        /// Creates one stream over a connected blocking socket channel.
+        ///
+        /// @param channel borrowed connected socket
+        private SocketChannelInputStream(SocketChannel channel) {
+            this.channel = channel;
+        }
+
+        /// Reads one byte from the socket channel.
+        ///
+        /// @return unsigned byte or `-1` at clean socket closure
+        /// @throws IOException if reading fails
+        @Override
+        public int read() throws IOException {
+            byte[] singleByte = new byte[1];
+            int read = read(singleByte, 0, 1);
+            return read < 0 ? -1 : Byte.toUnsignedInt(singleByte[0]);
+        }
+
+        /// Reads one bounded byte range directly from the socket channel.
+        ///
+        /// @param bytes destination array
+        /// @param offset destination offset
+        /// @param length maximum byte count
+        /// @return bytes read or `-1` at clean socket closure
+        /// @throws IOException if reading fails
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            java.util.Objects.checkFromIndexSize(offset, length, bytes.length);
+            if (length == 0) {
+                return 0;
+            }
+            return channel.read(ByteBuffer.wrap(bytes, offset, length));
+        }
+    }
+
+    /// Blocking OutputStream that writes directly to one connected socket channel.
+    @NotNullByDefault
+    private static final class SocketChannelOutputStream extends OutputStream {
+        /// Borrowed socket channel owned by its connection.
+        private final SocketChannel channel;
+
+        /// Creates one stream over a connected blocking socket channel.
+        ///
+        /// @param channel borrowed connected socket
+        private SocketChannelOutputStream(SocketChannel channel) {
+            this.channel = channel;
+        }
+
+        /// Writes one byte to the socket channel.
+        ///
+        /// @param value low eight bits to write
+        /// @throws IOException if writing fails
+        @Override
+        public void write(int value) throws IOException {
+            write(new byte[]{(byte) value});
+        }
+
+        /// Writes one complete byte range directly to the socket channel.
+        ///
+        /// @param bytes source array
+        /// @param offset source offset
+        /// @param length byte count
+        /// @throws IOException if writing fails
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            java.util.Objects.checkFromIndexSize(offset, length, bytes.length);
+            ByteBuffer buffer = ByteBuffer.wrap(bytes, offset, length);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
         }
     }
 
