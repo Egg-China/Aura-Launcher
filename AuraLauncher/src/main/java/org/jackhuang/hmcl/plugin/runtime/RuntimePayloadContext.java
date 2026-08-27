@@ -48,6 +48,9 @@ public final class RuntimePayloadContext {
     /// Supplies the current opaque plugin-scoped capability authority.
     private final Supplier<PluginCapabilityToken> capabilityTokenSupplier;
 
+    /// Launcher-owned raw-byte Bridge transport retained without serializing Java capability tokens.
+    private final RuntimeBridgeTransport bridgeTransport;
+
     /// Creates one immutable payload-loading context.
     ///
     /// The supplier deliberately remains opaque until the language-neutral capability token contract is introduced.
@@ -65,6 +68,34 @@ public final class RuntimePayloadContext {
             PluginExecutionMode executionMode,
             Path dataDirectory,
             Supplier<PluginCapabilityToken> capabilityTokenSupplier) {
+        this(
+                artifactIdentity,
+                packagePath,
+                entrypoint,
+                executionMode,
+                dataDirectory,
+                capabilityTokenSupplier,
+                RuntimeBridgeTransport.unavailable()
+        );
+    }
+
+    /// Creates one immutable payload-loading context with an explicit launcher Bridge transport.
+    ///
+    /// @param artifactIdentity exact verified plugin package identity
+    /// @param packagePath verified package or extracted package root
+    /// @param entrypoint runtime-owned selected entrypoint
+    /// @param executionMode requested execution boundary
+    /// @param dataDirectory plugin-owned data directory
+    /// @param capabilityTokenSupplier supplier of the current plugin-scoped authority
+    /// @param bridgeTransport launcher-owned raw-byte Runtime Bridge transport
+    public RuntimePayloadContext(
+            PluginArtifactIdentity artifactIdentity,
+            Path packagePath,
+            String entrypoint,
+            PluginExecutionMode executionMode,
+            Path dataDirectory,
+            Supplier<PluginCapabilityToken> capabilityTokenSupplier,
+            RuntimeBridgeTransport bridgeTransport) {
         validateEntrypoint(entrypoint);
         this.artifactIdentity = Objects.requireNonNull(artifactIdentity, "artifactIdentity");
         this.packagePath = packagePath.toAbsolutePath().normalize();
@@ -72,6 +103,7 @@ public final class RuntimePayloadContext {
         this.executionMode = Objects.requireNonNull(executionMode, "executionMode");
         this.dataDirectory = dataDirectory.toAbsolutePath().normalize();
         this.capabilityTokenSupplier = Objects.requireNonNull(capabilityTokenSupplier, "capabilityTokenSupplier");
+        this.bridgeTransport = Objects.requireNonNull(bridgeTransport, "bridgeTransport");
     }
 
     /// Returns the exact package identity approved for loading.
@@ -102,6 +134,13 @@ public final class RuntimePayloadContext {
     /// Returns the supplier of current plugin-scoped capability authority.
     public Supplier<PluginCapabilityToken> capabilityTokenSupplier() {
         return capabilityTokenSupplier;
+    }
+
+    /// Returns the launcher-owned raw-byte Bridge transport for this exact payload context.
+    ///
+    /// @return Runtime Bridge transport
+    public RuntimeBridgeTransport bridgeTransport() {
+        return bridgeTransport;
     }
 
     /// Validates one runtime-owned entrypoint against the shared package-relative path contract.

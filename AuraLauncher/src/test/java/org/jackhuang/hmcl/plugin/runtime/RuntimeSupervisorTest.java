@@ -60,6 +60,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -1053,6 +1054,57 @@ public final class RuntimeSupervisorTest {
         }
     }
 
+    /// Serializes payload callbacks against disablement and rejects callbacks after disable or unload.
+    ///
+    /// @param temporaryDirectory isolated payload paths
+    /// @throws Exception if fixture setup, synchronization, or lifecycle completion fails
+    @Test
+    public void serializePayloadInvocationWithDisableAndRejectStoppedPayload(
+            @TempDir Path temporaryDirectory
+    ) throws Exception {
+        String payloadId = "dev.plugin.callback";
+        RuntimeProviderRegistry registry = new RuntimeProviderRegistry();
+        RuntimeSupervisor supervisor = new RuntimeSupervisor(registry);
+        RecordingProvider provider = new RecordingProvider("dev.host.rust", true);
+        advanceToBootstrap(supervisor, "dev.host.rust");
+        RuntimeProviderRegistration registration = supervisor.register("dev.host.rust", provider);
+        supervisor.activate(registration);
+        registry.bind(payloadId, requirement("rust"));
+        RuntimePayloadHandle handle = supervisor.loadPayload(
+                payloadId, payloadContext(payloadId, temporaryDirectory));
+        supervisor.enablePayload(handle);
+        CountDownLatch invocationEntered = new CountDownLatch(1);
+        CountDownLatch releaseInvocation = new CountDownLatch(1);
+        provider.blockInvocation(invocationEntered, releaseInvocation);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<byte[]> invocation = executor.submit(
+                    () -> supervisor.invokePayload(payloadId, "ui.callback", new byte[]{1, 2, 3}, 23L));
+            assertTrue(invocationEntered.await(5, TimeUnit.SECONDS));
+            Future<Void> disabling = executor.submit(() -> {
+                supervisor.disablePayload(handle);
+                return null;
+            });
+
+            assertFalse(disabling.isDone());
+            assertFalse(provider.events.contains("disable:" + payloadId));
+
+            releaseInvocation.countDown();
+            assertArrayEquals(new byte[]{1, 2, 3}, invocation.get(5, TimeUnit.SECONDS));
+            disabling.get(5, TimeUnit.SECONDS);
+            assertThrows(IOException.class,
+                    () -> supervisor.invokePayload(payloadId, "ui.callback", new byte[0], 23L));
+
+            supervisor.unloadPayload(handle);
+            assertThrows(IOException.class,
+                    () -> supervisor.invokePayload(payloadId, "ui.callback", new byte[0], 23L));
+            registration.close();
+        } finally {
+            releaseInvocation.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     /// Rejects an operation which captured an old registration before an identical handle was reissued.
     ///
     /// @param mutation stale payload operation to exercise
@@ -1551,6 +1603,12 @@ public final class RuntimeSupervisorTest {
         /// Optional gate which blocks payload enablement until the test releases it.
         private @Nullable CountDownLatch releaseEnable;
 
+        /// Optional signal emitted when raw payload invocation enters the Provider callback.
+        private @Nullable CountDownLatch invocationEntered;
+
+        /// Optional gate which blocks raw payload invocation until the test releases it.
+        private @Nullable CountDownLatch releaseInvocation;
+
         /// Optional signal emitted when Hook invocation enters Provider code.
         private @Nullable CountDownLatch hookEntered;
 
@@ -1629,6 +1687,15 @@ public final class RuntimeSupervisorTest {
         private void blockEnable(CountDownLatch entered, CountDownLatch release) {
             enableEntered = entered;
             releaseEnable = release;
+        }
+
+        /// Configures the next raw payload invocation to block between the supplied latches.
+        ///
+        /// @param entered signal emitted on callback entry
+        /// @param release gate allowing callback completion
+        private void blockInvocation(CountDownLatch entered, CountDownLatch release) {
+            invocationEntered = entered;
+            releaseInvocation = release;
         }
 
         /// Configures the next Hook callback to block between the supplied latches.
@@ -1718,6 +1785,26 @@ public final class RuntimeSupervisorTest {
                 failNextPayloadDisable = false;
                 throw new IOException("configured payload disable failure");
             }
+        }
+
+        /// Echoes one raw payload callback after optional deterministic blocking.
+        ///
+        /// @param handle exact current payload handle
+        /// @param operation canonical payload operation
+        /// @param input canonical Bridge bytes
+        /// @param callbackId payload-local callback ID
+        /// @return defensive echo of the supplied bytes
+        /// @throws IOException if callback coordination is interrupted or times out
+        @Override
+        public byte[] invokePayload(
+                RuntimePayloadHandle handle,
+                String operation,
+                byte[] input,
+                long callbackId
+        ) throws IOException {
+            events.add("invoke:" + operation + ":" + callbackId);
+            awaitCallback(invocationEntered, releaseInvocation);
+            return input.clone();
         }
 
         /// Records payload unloading.

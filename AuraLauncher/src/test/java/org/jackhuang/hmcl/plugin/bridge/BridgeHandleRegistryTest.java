@@ -107,6 +107,32 @@ class BridgeHandleRegistryTest {
         assertSame(replacement, registry.resolve("plugin-a", current, current.type()));
     }
 
+    /// Retains cloned foreign references and releases the JVM object only after the final owner reference drops.
+    @Test
+    void referenceCountsOpaqueRuntimeHandlesWithOwnerValidation() {
+        BridgeHandleRegistry<String> registry = ownerRegistry();
+        AtomicInteger releases = new AtomicInteger();
+        BridgeHandle handle = registry.register(
+                "plugin-a", "ui.page", new Object(), releases::incrementAndGet);
+
+        registry.retain("plugin-a", handle.id(), handle.generation());
+        assertCategory(BridgeError.Category.PERMISSION_DENIED,
+                () -> registry.retain("plugin-b", handle.id(), handle.generation()));
+        assertCategory(BridgeError.Category.STALE_HANDLE,
+                () -> registry.release("plugin-a", handle.id(), handle.generation() + 1L));
+        registry.release("plugin-a", handle.id(), handle.generation());
+
+        assertTrue(registry.isLive(handle));
+        assertEquals(0, releases.get());
+
+        registry.release("plugin-a", handle.id(), handle.generation());
+
+        assertFalse(registry.isLive(handle));
+        assertEquals(1, releases.get());
+        assertCategory(BridgeError.Category.STALE_HANDLE,
+                () -> registry.release("plugin-a", handle.id(), handle.generation()));
+    }
+
     /// Validates handle types before allocating fresh or reusable slots.
     @Test
     void invalidHandleTypeDoesNotConsumeRegistrySlots() {

@@ -41,6 +41,9 @@ public final class BridgeHandleRegistry<T> {
     /// Live entries keyed only by registry-local numeric slot.
     private final Map<Long, Entry> entries = new HashMap<>();
 
+    /// Live foreign ownership reference counts keyed by registry-local numeric slot.
+    private final Map<Long, Integer> referenceCounts = new HashMap<>();
+
     /// Current generation for every allocated or reusable numeric slot.
     private final Map<Long, Long> generations = new HashMap<>();
 
@@ -91,7 +94,56 @@ public final class BridgeHandleRegistry<T> {
         long generation = generations.computeIfAbsent(id, ignored -> 1L);
         BridgeHandle handle = new BridgeHandle(id, generation, validatedType);
         entries.put(id, new Entry(ownerPluginId, handle, reference, release));
+        referenceCounts.put(id, 1);
         return handle;
+    }
+
+    /// Retains one exact live handle after owner and generation verification.
+    ///
+    /// @param authority opaque authority verified by the owner resolver
+    /// @param objectId registry-local numeric slot
+    /// @param generation exact live slot generation
+    /// @throws BridgeError when owner, generation, or reference-count bounds fail
+    public synchronized void retain(T authority, long objectId, long generation) throws BridgeError {
+        Entry entry = requireOwnedEntry(authority, objectId, generation);
+        int references = referenceCounts.getOrDefault(entry.handle().id(), 0);
+        if (references <= 0 || references == Integer.MAX_VALUE) {
+            throw BridgeError.of(BridgeError.Category.UNAVAILABLE);
+        }
+        referenceCounts.put(entry.handle().id(), references + 1);
+    }
+
+    /// Releases one exact live handle and cleans up its JVM reference after the final owner reference drops.
+    ///
+    /// @param authority opaque authority verified by the owner resolver
+    /// @param objectId registry-local numeric slot
+    /// @param generation exact live slot generation
+    /// @throws BridgeError when owner, generation, or cleanup validation fails
+    public void release(T authority, long objectId, long generation) throws BridgeError {
+        Entry released;
+        synchronized (this) {
+            Entry entry = requireOwnedEntry(authority, objectId, generation);
+            int references = referenceCounts.getOrDefault(entry.handle().id(), 0);
+            if (references <= 0) {
+                throw BridgeError.of(BridgeError.Category.STALE_HANDLE);
+            }
+            if (references > 1) {
+                referenceCounts.put(entry.handle().id(), references - 1);
+                return;
+            }
+            invalidate(entry);
+            entries.remove(entry.handle().id());
+            referenceCounts.remove(entry.handle().id());
+            if (generations.get(entry.handle().id()) > 0L) {
+                reusableIds.addLast(entry.handle().id());
+            }
+            released = entry;
+        }
+        try {
+            released.release().run();
+        } catch (RuntimeException | Error exception) {
+            throw BridgeError.of(BridgeError.Category.INTERNAL);
+        }
     }
 
     /// Resolves one opaque handle after authority owner, generation, and type validation.
@@ -162,6 +214,7 @@ public final class BridgeHandleRegistry<T> {
             }
             for (Entry entry : revoked) {
                 entries.remove(entry.handle().id());
+                referenceCounts.remove(entry.handle().id());
                 if (generations.get(entry.handle().id()) > 0L) {
                     reusableIds.addLast(entry.handle().id());
                 }
@@ -202,6 +255,25 @@ public final class BridgeHandleRegistry<T> {
     private void invalidate(Entry entry) {
         long generation = entry.handle().generation();
         generations.put(entry.handle().id(), generation == Long.MAX_VALUE ? -1L : generation + 1L);
+    }
+
+    /// Resolves one live entry after exact generation and authenticated owner validation.
+    ///
+    /// @param authority opaque authority
+    /// @param objectId registry-local numeric slot
+    /// @param generation exact live generation
+    /// @return verified live entry
+    /// @throws BridgeError if the slot is stale or owned by another plugin
+    private Entry requireOwnedEntry(T authority, long objectId, long generation) throws BridgeError {
+        Entry entry = entries.get(objectId);
+        if (entry == null || entry.handle().generation() != generation) {
+            throw BridgeError.of(BridgeError.Category.STALE_HANDLE);
+        }
+        String authorityOwner = requireVerifiedOwner(authority, entry.ownerPluginId());
+        if (!entry.ownerPluginId().equals(authorityOwner)) {
+            throw BridgeError.of(BridgeError.Category.PERMISSION_DENIED);
+        }
+        return entry;
     }
 
     /// Verifies the opaque authority and normalizes verifier failures to the permission-denied category.

@@ -29,6 +29,7 @@ import org.jackhuang.hmcl.plugin.runtime.PluginExecutionMode;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeFeature;
 import org.jackhuang.hmcl.plugin.runtime.RuntimePayloadContext;
 import org.jackhuang.hmcl.plugin.runtime.RuntimePayloadHandle;
+import org.jackhuang.hmcl.plugin.runtime.RuntimeBridgeTransport;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeProvider;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeProviderDeclaration;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeProviderDescriptor;
@@ -54,6 +55,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 /// Verifies external payload context construction and lifecycle delegation through a selected runtime Provider.
@@ -98,11 +100,29 @@ public final class RuntimePluginLoaderTest {
         RuntimeProviderRegistration registration = supervisor.register("dev.host.rust", provider);
         supervisor.activate(registration);
         registry.bind(pluginId, manifest.getRuntimeRequirement());
+        RuntimeBridgeTransport bridgeTransport = new RuntimeBridgeTransport() {
+            /// Returns the exact test input.
+            @Override
+            public byte[] invoke(RuntimePayloadContext context, String operation, byte[] input) {
+                return input.clone();
+            }
+
+            /// Accepts test handle retention.
+            @Override
+            public void retainHandle(RuntimePayloadContext context, long objectId, long generation) {
+            }
+
+            /// Accepts test handle release.
+            @Override
+            public void releaseHandle(RuntimePayloadContext context, long objectId, long generation) {
+            }
+        };
         RuntimePluginLoader loader = new RuntimePluginLoader(
                 supervisor,
                 ignored -> dataDirectory,
                 ignored -> () -> token,
-                authority
+                authority,
+                bridgeTransport
         );
 
         Plugin plugin = loader.load(manifest, pluginPackage, nplFile);
@@ -114,6 +134,7 @@ public final class RuntimePluginLoaderTest {
         assertEquals(PluginExecutionMode.EMBEDDED, context.executionMode());
         assertEquals(dataDirectory.toAbsolutePath().normalize(), context.dataDirectory());
         assertSame(token, context.capabilityTokenSupplier().get());
+        assertSame(bridgeTransport, context.bridgeTransport());
         assertSame(manifest, plugin.getManifest());
 
         plugin.onLoad(new org.jackhuang.hmcl.plugin.PluginContext(
@@ -123,10 +144,14 @@ public final class RuntimePluginLoaderTest {
                 getClass().getClassLoader()
         ));
         plugin.onEnable();
+        supervisor.hostEnabled("dev.host.rust");
+        byte[] callbackResult = supervisor.invokePayload(
+                pluginId, "ui.callback", new byte[]{5, 6, 7}, 19L);
         plugin.onDisable();
         plugin.onUnload();
 
-        assertEquals(List.of("load", "enable", "disable", "unload"), provider.events);
+        assertArrayEquals(new byte[]{5, 6, 7}, callbackResult);
+        assertEquals(List.of("load", "enable", "invoke:ui.callback:19", "disable", "unload"), provider.events);
         registration.close();
     }
 
@@ -239,6 +264,18 @@ public final class RuntimePluginLoaderTest {
         @Override
         public void disablePayload(RuntimePayloadHandle handle) {
             events.add("disable");
+        }
+
+        /// Echoes one raw-byte payload callback and records its operation identity.
+        @Override
+        public byte[] invokePayload(
+                RuntimePayloadHandle handle,
+                String operation,
+                byte[] input,
+                long callbackId
+        ) {
+            events.add("invoke:" + operation + ":" + callbackId);
+            return input.clone();
         }
 
         /// Records payload unloading.

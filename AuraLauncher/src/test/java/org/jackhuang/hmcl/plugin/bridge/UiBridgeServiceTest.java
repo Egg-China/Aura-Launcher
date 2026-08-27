@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -112,6 +113,61 @@ final class UiBridgeServiceTest {
             fixture.registry().invoke(
                     fixture.context(), BridgeMethod.UI_UNREGISTER_OWNER.operation(), BridgeValue.nullValue());
             assertTrue(fixture.backend().contributions.isEmpty());
+        }
+    }
+
+    /// Uses current payload authority to reference-count UI handles exposed through a Runtime Host.
+    @Test
+    void retainsAndReleasesRuntimeOwnedUiHandles() {
+        try (Fixture fixture = fixture(Set.of(PluginPermission.LAUNCHER_UI),
+                (owner, callbackId, event, cancellation) -> BridgeValue.nullValue())) {
+            BridgeValue.HandleValue registered = assertInstanceOf(BridgeValue.HandleValue.class,
+                    fixture.registry().invoke(
+                            fixture.context(),
+                            BridgeMethod.UI_REGISTER_SIDEBAR_ACTION.operation(),
+                            BridgeValue.map(Map.of(
+                                    "title", BridgeValue.string("Reference counted"),
+                                    "callback", BridgeValue.integer(37L)
+                            ))
+                    ));
+            BridgeHandle handle = registered.value();
+
+            fixture.uiService().retain(fixture.context(), handle.id(), handle.generation());
+            fixture.uiService().release(fixture.context(), handle.id(), handle.generation());
+
+            assertEquals(1, fixture.backend().contributions.size());
+
+            fixture.uiService().release(fixture.context(), handle.id(), handle.generation());
+
+            assertTrue(fixture.backend().contributions.isEmpty());
+            assertCategory(BridgeError.Category.STALE_HANDLE,
+                    () -> fixture.uiService().release(
+                            fixture.context(), handle.id(), handle.generation()));
+        }
+    }
+
+    /// Completes owner cleanup when one exact contribution release callback fails.
+    @Test
+    void completesOwnerCleanupAfterContributionReleaseFailure() {
+        try (Fixture fixture = fixture(Set.of(PluginPermission.LAUNCHER_UI),
+                (owner, callbackId, event, cancellation) -> BridgeValue.nullValue())) {
+            BridgeValue.HandleValue registered = assertInstanceOf(BridgeValue.HandleValue.class,
+                    fixture.registry().invoke(
+                            fixture.context(),
+                            BridgeMethod.UI_REGISTER_SIDEBAR_ACTION.operation(),
+                            BridgeValue.map(Map.of(
+                                    "title", BridgeValue.string("Failing cleanup"),
+                                    "callback", BridgeValue.integer(41L)
+                            ))
+                    ));
+            fixture.backend().failNextUnregister.set(true);
+
+            assertDoesNotThrow(() -> fixture.uiService().closeOwner("test.ui-bridge"));
+
+            assertTrue(fixture.backend().contributions.isEmpty());
+            assertCategory(BridgeError.Category.STALE_HANDLE,
+                    () -> fixture.uiService().release(
+                            fixture.context(), registered.value().id(), registered.value().generation()));
         }
     }
 
@@ -380,8 +436,9 @@ final class UiBridgeServiceTest {
         );
         FakeBackend backend = new FakeBackend();
         BridgeDispatcher dispatcher = new BridgeDispatcher(callbackExecutor);
-        new UiBridgeService(registry, authority, dispatcher, callbackInvoker, backend);
-        return new Fixture(registry, context, session, backend);
+        UiBridgeService uiService = new UiBridgeService(
+                registry, authority, dispatcher, callbackInvoker, backend);
+        return new Fixture(registry, context, session, backend, uiService);
     }
 
     /// Verifies one stable method key pair.
@@ -415,6 +472,9 @@ final class UiBridgeServiceTest {
         /// Whether the most recent registration ran on JavaFX.
         private final AtomicBoolean registeredOnFxThread = new AtomicBoolean();
 
+        /// Makes the next exact contribution cleanup fail before owner-level cleanup runs.
+        private final AtomicBoolean failNextUnregister = new AtomicBoolean();
+
         /// Registers one action contribution.
         @Override
         public Object registerSidebarAction(String ownerPluginId, String title, Runnable action) {
@@ -437,6 +497,9 @@ final class UiBridgeServiceTest {
         /// Removes one exact contribution.
         @Override
         public void unregister(Object contribution) {
+            if (failNextUnregister.compareAndSet(true, false)) {
+                throw new IllegalStateException("Requested contribution cleanup failure");
+            }
             contributions.remove(contribution);
         }
 
@@ -474,12 +537,14 @@ final class UiBridgeServiceTest {
     /// @param context exact payload context
     /// @param session closeable capability session
     /// @param backend fake UI backend
+    /// @param uiService configured UI Bridge service
     @NotNullByDefault
     private record Fixture(
             BridgeServiceRegistry registry,
             RuntimePayloadContext context,
             PluginCapabilitySession session,
-            FakeBackend backend
+            FakeBackend backend,
+            UiBridgeService uiService
     ) implements AutoCloseable {
         /// Revokes every token issued by this fixture.
         @Override

@@ -351,6 +351,63 @@ public final class RuntimeSupervisor {
         }
     }
 
+    /// Invokes one enabled external payload through its exact current Provider registration.
+    ///
+    /// @param dependentPluginId canonical dependent payload owner
+    /// @param operation canonical payload operation
+    /// @param input canonical Bridge Value v1 bytes
+    /// @param callbackId positive payload-local callback ID, or zero when absent
+    /// @return defensively copied canonical Bridge Value v1 result bytes
+    /// @throws IOException if lifecycle validation, binding, Provider invocation, or result validation fails
+    public byte[] invokePayload(
+            String dependentPluginId,
+            String operation,
+            byte[] input,
+            long callbackId
+    ) throws IOException {
+        requireCanonicalId(dependentPluginId);
+        if (operation.isBlank() || !operation.equals(operation.trim()) || operation.length() > 128) {
+            throw new IOException("Runtime payload operation is not canonical");
+        }
+        if (callbackId < 0L) {
+            throw new IOException("Runtime payload callback ID must not be negative");
+        }
+        byte[] argument = Objects.requireNonNull(input, "input").clone();
+        RuntimePayloadHandle handle;
+        PayloadRecord record;
+        synchronized (this) {
+            handle = payloads.keySet().stream()
+                    .filter(candidate -> candidate.ownerPluginId().equals(dependentPluginId))
+                    .findFirst()
+                    .orElseThrow(() -> new IOException(
+                            "No loaded runtime payload for callback owner: " + dependentPluginId));
+            record = requirePayload(handle);
+        }
+        synchronized (record.registration.lifecycleLock()) {
+            RuntimeProvider provider;
+            synchronized (this) {
+                requireExactPayloadRecord(handle, record);
+                requireRegistration(record.registration);
+                requireReady(handle.providerId());
+                RuntimeProviderBinding binding = registry.bindingFor(dependentPluginId)
+                        .orElseThrow(() -> new IOException(
+                                "Plugin has no runtime Provider binding: " + dependentPluginId));
+                if (!binding.providerId().equals(handle.providerId())) {
+                    throw new IOException("Runtime Provider binding changed before payload callback: "
+                            + dependentPluginId);
+                }
+                if (!enabledHosts.contains(handle.providerId())
+                        || !record.enabled
+                        || !record.acceptingCallbacks) {
+                    throw new IOException("Runtime payload is not enabled for callbacks: " + dependentPluginId);
+                }
+                provider = record.registration.provider();
+            }
+            byte[] result = provider.invokePayload(handle, operation, argument, callbackId);
+            return Objects.requireNonNull(result, "Runtime Provider payload result").clone();
+        }
+    }
+
     /// Creates one launcher-side Hook transport bound to the exact current payload record.
     ///
     /// The returned invoker never captures a bare Provider. Every call re-enters Supervisor ownership and fails

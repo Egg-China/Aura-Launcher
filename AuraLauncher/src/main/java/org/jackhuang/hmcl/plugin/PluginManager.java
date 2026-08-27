@@ -26,6 +26,14 @@ import org.jackhuang.hmcl.plugin.internal.PluginPackageVersions;
 import org.jackhuang.hmcl.plugin.internal.VerifiedPluginPackage;
 import org.jackhuang.hmcl.plugin.bridge.PluginCapabilitySession;
 import org.jackhuang.hmcl.plugin.bridge.PluginPermissionAuthority;
+import org.jackhuang.hmcl.plugin.bridge.BridgeDispatcher;
+import org.jackhuang.hmcl.plugin.bridge.BridgeError;
+import org.jackhuang.hmcl.plugin.bridge.BridgeServiceRegistry;
+import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
+import org.jackhuang.hmcl.plugin.bridge.CoreBridgeService;
+import org.jackhuang.hmcl.plugin.bridge.LauncherRuntimeBridgeTransport;
+import org.jackhuang.hmcl.plugin.bridge.RuntimeBridgeWireCodec;
+import org.jackhuang.hmcl.plugin.bridge.UiBridgeService;
 import org.jackhuang.hmcl.plugin.loader.JavaPluginLoader;
 import org.jackhuang.hmcl.plugin.loader.PluginLoader;
 import org.jackhuang.hmcl.plugin.loader.RuntimePluginLoader;
@@ -41,6 +49,7 @@ import org.jackhuang.hmcl.plugin.runtime.RuntimeProviderDeclaration;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeProviderRegistry;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeRequirement;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeSupervisor;
+import org.jackhuang.hmcl.plugin.runtime.RuntimeBridgeTransport;
 import org.jackhuang.hmcl.plugin.protector.PluginRecoveryRecord;
 import org.jackhuang.hmcl.plugin.protector.PluginRecoveryStore;
 import org.jackhuang.hmcl.plugin.protector.StartupReporter;
@@ -48,6 +57,7 @@ import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceipt;
 import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceiptStore;
 import org.jackhuang.hmcl.plugin.trust.PluginRuntimeTrustGuard;
 import org.jackhuang.hmcl.ui.FXUtils;
+import org.jackhuang.hmcl.task.Schedulers;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -117,6 +127,14 @@ public final class PluginManager {
     private final PluginPermissionService permissionService;
     /// Process-local authority for external runtime Bridge capability tokens.
     private final PluginPermissionAuthority permissionAuthority;
+    /// Bounded callback dispatcher shared by declarative Runtime UI contributions.
+    private final BridgeDispatcher bridgeDispatcher;
+    /// Authorized Core and UI method registry shared by all external payload contexts.
+    private final BridgeServiceRegistry bridgeServices;
+    /// Declarative UI service and owner cleanup boundary.
+    private final UiBridgeService uiBridgeService;
+    /// Raw-byte launcher Bridge transport injected into external payload contexts.
+    private final RuntimeBridgeTransport runtimeBridgeTransport;
     /// Exact-artifact policy for plugin-store dependency reuse.
     private final PluginReusePolicy reusePolicy;
     /// Exact prior-state capture and final replacement revalidation.
@@ -281,6 +299,30 @@ public final class PluginManager {
                 mutationLock
         );
         permissionAuthority = new PluginPermissionAuthority();
+        bridgeDispatcher = new BridgeDispatcher(Schedulers.io());
+        bridgeServices = new BridgeServiceRegistry(permissionAuthority);
+        new CoreBridgeService(bridgeServices);
+        uiBridgeService = new UiBridgeService(
+                bridgeServices,
+                permissionAuthority,
+                bridgeDispatcher,
+                (ownerPluginId, callbackId, event, cancellation) -> {
+                    if (cancellation.isCancellationRequested()) {
+                        return BridgeValue.error(BridgeError.of(BridgeError.Category.CANCELLED));
+                    }
+                    byte[] result = runtimeSupervisor.invokePayload(
+                            ownerPluginId,
+                            "ui.callback",
+                            RuntimeBridgeWireCodec.encode(event),
+                            callbackId
+                    );
+                    if (cancellation.isCancellationRequested()) {
+                        return BridgeValue.error(BridgeError.of(BridgeError.Category.CANCELLED));
+                    }
+                    return RuntimeBridgeWireCodec.decode(result);
+                }
+        );
+        runtimeBridgeTransport = new LauncherRuntimeBridgeTransport(bridgeServices, uiBridgeService);
         reusePolicy = new PluginReusePolicy(
                 packageRepository,
                 permissionService,
@@ -1080,7 +1122,8 @@ public final class PluginManager {
                     runtimeSupervisor,
                     ignored -> dataDirectory,
                     ignored -> payloadCapabilitySession::issue,
-                    permissionAuthority
+                    permissionAuthority,
+                    runtimeBridgeTransport
             );
         } else {
             loader = loaders.get(manifest.getType());
@@ -1414,7 +1457,7 @@ public final class PluginManager {
                 stateLock.writeLock().unlock();
             }
             try {
-                PluginUIRegistry.unregisterAll(pluginId);
+                uiBridgeService.closeOwner(pluginId);
             } catch (RuntimeException | Error cleanupException) {
                 exception.addSuppressed(cleanupException);
             }
@@ -1827,7 +1870,7 @@ public final class PluginManager {
                     runtimeSupervisor.hostDisabled(pluginId);
                 }
                 container.setEnabled(false);
-                PluginUIRegistry.unregisterAll(pluginId);
+                uiBridgeService.closeOwner(pluginId);
             }
         }
 
@@ -1934,7 +1977,7 @@ public final class PluginManager {
         } finally {
             stateLock.writeLock().unlock();
         }
-        PluginUIRegistry.unregisterAll(pluginId);
+        uiBridgeService.closeOwner(pluginId);
         try {
             container.closeClassLoader();
         } catch (IOException exception) {
@@ -2157,7 +2200,7 @@ public final class PluginManager {
             return;
         }
         if (launcherUiBefore && !launcherUiAfter) {
-            PluginUIRegistry.unregisterAll(pluginId);
+            uiBridgeService.closeOwner(pluginId);
         }
     }
 

@@ -27,6 +27,7 @@ import org.jackhuang.hmcl.plugin.internal.VerifiedPluginPackage;
 import org.jackhuang.hmcl.plugin.runtime.PluginRuntimeTypes;
 import org.jackhuang.hmcl.plugin.runtime.RuntimePayloadContext;
 import org.jackhuang.hmcl.plugin.runtime.RuntimePayloadHandle;
+import org.jackhuang.hmcl.plugin.runtime.RuntimeBridgeTransport;
 import org.jackhuang.hmcl.plugin.runtime.RuntimeSupervisor;
 import org.jetbrains.annotations.NotNullByDefault;
 
@@ -52,6 +53,9 @@ public final class RuntimePluginLoader implements PluginLoader {
     /// Launcher-owned authority used to retain manifest Patch declarations at the payload boundary.
     private final PluginPermissionAuthority permissionAuthority;
 
+    /// Launcher-owned Runtime Bridge transport inserted into every exact payload context.
+    private final RuntimeBridgeTransport bridgeTransport;
+
     /// Creates a Provider-backed external payload loader.
     ///
     /// @param supervisor Provider lifecycle owner
@@ -64,10 +68,34 @@ public final class RuntimePluginLoader implements PluginLoader {
             Function<String, Supplier<PluginCapabilityToken>> capabilityTokenResolver,
             PluginPermissionAuthority permissionAuthority
     ) {
+        this(
+                supervisor,
+                dataDirectoryResolver,
+                capabilityTokenResolver,
+                permissionAuthority,
+                RuntimeBridgeTransport.unavailable()
+        );
+    }
+
+    /// Creates a Provider-backed external payload loader with production Bridge transport wiring.
+    ///
+    /// @param supervisor Provider lifecycle owner
+    /// @param dataDirectoryResolver dependent data-directory resolver
+    /// @param capabilityTokenResolver dependent capability-authority resolver
+    /// @param permissionAuthority launcher-owned capability verifier
+    /// @param bridgeTransport launcher-owned raw-byte Runtime Bridge transport
+    public RuntimePluginLoader(
+            RuntimeSupervisor supervisor,
+            Function<String, Path> dataDirectoryResolver,
+            Function<String, Supplier<PluginCapabilityToken>> capabilityTokenResolver,
+            PluginPermissionAuthority permissionAuthority,
+            RuntimeBridgeTransport bridgeTransport
+    ) {
         this.supervisor = Objects.requireNonNull(supervisor, "supervisor");
         this.dataDirectoryResolver = Objects.requireNonNull(dataDirectoryResolver, "dataDirectoryResolver");
         this.capabilityTokenResolver = Objects.requireNonNull(capabilityTokenResolver, "capabilityTokenResolver");
         this.permissionAuthority = Objects.requireNonNull(permissionAuthority, "permissionAuthority");
+        this.bridgeTransport = Objects.requireNonNull(bridgeTransport, "bridgeTransport");
     }
 
     /// Verifies one exact external payload and delegates loading through its selected ready Provider.
@@ -110,7 +138,8 @@ public final class RuntimePluginLoader implements PluginLoader {
                 manifest.getEntrypoint(),
                 manifest.getExecutionMode(),
                 dataDirectory,
-                capabilityTokenSupplier
+                capabilityTokenSupplier,
+                bridgeTransport
         );
         RuntimePayloadHandle handle = supervisor.loadPayload(pluginId, payloadContext);
         try {

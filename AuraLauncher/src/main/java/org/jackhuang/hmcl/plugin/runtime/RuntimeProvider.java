@@ -143,6 +143,27 @@ public interface RuntimeProvider extends AutoCloseable {
                 + descriptor().providerId());
     }
 
+    /// Invokes one generic raw-byte callback on an enabled Provider-owned payload.
+    ///
+    /// This boundary carries only canonical Bridge wire bytes and numeric callback identity; Providers must not
+    /// request or serialize Java capability-token objects for the external payload.
+    ///
+    /// @param handle exact Provider-owned payload handle
+    /// @param operation canonical payload operation
+    /// @param input canonical Bridge Value v1 bytes
+    /// @param callbackId positive payload-local callback ID, or zero when no callback identity applies
+    /// @return canonical Bridge Value v1 result bytes
+    /// @throws IOException if invocation is unsupported or fails
+    default byte[] invokePayload(
+            RuntimePayloadHandle handle,
+            String operation,
+            byte[] input,
+            long callbackId
+    ) throws IOException {
+        throw new IOException("Runtime provider does not implement payload invocation: "
+                + descriptor().providerId());
+    }
+
     /// Unloads one disabled provider-owned payload and releases its resources.
     ///
     /// @param handle provider-owned payload handle

@@ -55,9 +55,11 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
+import static org.jackhuang.hmcl.util.logging.Logger.LOG;
+
 /// Registers and owns language-neutral declarative JavaFX contributions for external Runtime payloads.
 @NotNullByDefault
-public final class UiBridgeService {
+public final class UiBridgeService implements LauncherRuntimeBridgeTransport.HandleTransport {
     /// Opaque handle type for one sidebar action contribution.
     private static final String SIDEBAR_HANDLE_TYPE = "ui.sidebar";
 
@@ -143,6 +145,61 @@ public final class UiBridgeService {
         targetRegistry.register(BridgeMethod.UI_SET_PROPERTY, this::setProperty);
         targetRegistry.register(BridgeMethod.UI_NAVIGATE, this::navigate);
         targetRegistry.register(BridgeMethod.UI_UNREGISTER_OWNER, this::unregisterOwner);
+    }
+
+    /// Retains one UI handle after resolving fresh call-scoped authority from its exact payload context.
+    ///
+    /// @param context exact Java-owned payload context
+    /// @param objectId launcher-owned object slot
+    /// @param generation exact live generation
+    /// @throws BridgeError if permission, ownership, or generation validation fails
+    @Override
+    public void retain(RuntimePayloadContext context, long objectId, long generation) throws BridgeError {
+        withHandleAuthority(context, token -> handles.retain(token, objectId, generation));
+    }
+
+    /// Releases one UI handle after resolving fresh call-scoped authority from its exact payload context.
+    ///
+    /// @param context exact Java-owned payload context
+    /// @param objectId launcher-owned object slot
+    /// @param generation exact live generation
+    /// @throws BridgeError if permission, ownership, generation, or cleanup validation fails
+    @Override
+    public void release(RuntimePayloadContext context, long objectId, long generation) throws BridgeError {
+        withHandleAuthority(context, token -> handles.release(token, objectId, generation));
+    }
+
+    /// Executes one handle operation under a fresh short-lived capability token and always revokes it.
+    ///
+    /// @param context exact Java-owned payload context
+    /// @param operation token-scoped handle operation
+    /// @throws BridgeError if authority issuance or operation validation fails
+    private void withHandleAuthority(RuntimePayloadContext context, HandleOperation operation) throws BridgeError {
+        RuntimePayloadContext payloadContext = Objects.requireNonNull(context, "context");
+        @Nullable PluginCapabilityToken token = null;
+        try {
+            token = Objects.requireNonNull(
+                    payloadContext.capabilityTokenSupplier().get(), "capabilityTokenSupplier result");
+            operation.run(token);
+        } catch (BridgeError error) {
+            throw error;
+        } catch (RuntimeException | Error exception) {
+            throw BridgeError.of(BridgeError.Category.PERMISSION_DENIED);
+        } finally {
+            if (token != null) {
+                permissionAuthority.revoke(token);
+            }
+        }
+    }
+
+    /// Performs one token-scoped UI handle operation.
+    @FunctionalInterface
+    @NotNullByDefault
+    private interface HandleOperation {
+        /// Executes under one current short-lived token.
+        ///
+        /// @param token current payload authority
+        void run(PluginCapabilityToken token);
     }
 
     /// Registers one sidebar action and returns its generation-safe owner handle.
@@ -260,18 +317,37 @@ public final class UiBridgeService {
     /// @param input validated null input
     /// @return Bridge null
     private BridgeValue unregisterOwner(BridgeServiceRegistry.Invocation invocation, BridgeValue input) {
-        String ownerPluginId = invocation.ownerPluginId();
+        closeOwner(invocation.ownerPluginId());
+        return BridgeValue.nullValue();
+    }
+
+    /// Cancels callbacks and removes all Bridge handles and UI contributions for one plugin lifecycle owner.
+    ///
+    /// This launcher-side path is idempotent and does not require a payload token because PluginManager supplies the
+    /// already authenticated lifecycle owner rather than accepting an external Runtime request. Every cleanup stage is
+    /// attempted and failures are logged so lifecycle state persistence and class-loader teardown can continue.
+    ///
+    /// @param ownerPluginId canonical plugin lifecycle owner
+    public void closeOwner(String ownerPluginId) {
         synchronized (this) {
             artifactIdentities.remove(ownerPluginId);
             executionModes.remove(ownerPluginId);
         }
-        callbackDispatcher.cancelOwner(ownerPluginId);
+        try {
+            callbackDispatcher.cancelOwner(ownerPluginId);
+        } catch (RuntimeException | Error exception) {
+            LOG.warning("Failed to cancel Runtime UI callbacks for " + ownerPluginId, exception);
+        }
         try {
             handles.revokeOwner(ownerPluginId);
-        } finally {
-            backend.unregisterOwner(ownerPluginId);
+        } catch (RuntimeException | Error exception) {
+            LOG.warning("Failed to release Runtime UI handles for " + ownerPluginId, exception);
         }
-        return BridgeValue.nullValue();
+        try {
+            backend.unregisterOwner(ownerPluginId);
+        } catch (RuntimeException | Error exception) {
+            LOG.warning("Failed to unregister Runtime UI contributions for " + ownerPluginId, exception);
+        }
     }
 
     /// Binds one owner to the exact artifact and mode used by subsequent handle verification.
