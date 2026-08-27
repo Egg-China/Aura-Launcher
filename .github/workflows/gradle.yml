@@ -39,10 +39,10 @@ jobs:
       - name: Upload launcher artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: HMCL-CE-${{ github.sha }}
+          name: Aura-Launcher-${{ github.sha }}
           path: |
-            HMCL/build/libs/HMCL-CE-*.jar*
-            HMCL/build/libs/HMCL-CE-*.exe*
-            HMCL/build/libs/HMCL-CE-*.sh*
-            HMCL/build/libs/HMCL-CE-*.deb*
+            AuraLauncher/build/libs/Aura-Launcher-*.jar*
+            AuraLauncher/build/libs/Aura-Launcher-*.exe*
+            AuraLauncher/build/libs/Aura-Launcher-*.sh*
+            AuraLauncher/build/libs/Aura-Launcher-*.deb*
           if-no-files-found: error

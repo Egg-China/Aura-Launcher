@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="../HMCL/src/main/resources/assets/img/icon@8x.png" alt="HMCL CE Logo" width="64" style="transform: rotate(180deg);"/>
+    <img src="../AuraLauncher/src/main/resources/assets/img/icon@8x.png" alt="Aura Launcher Logo" width="64" style="transform: rotate(180deg);"/>
 </div>
 
 <h1 align="center">ɹǝɥɔunɐ˥ ¡ʇɟɐɹɔǝuᴉW ollǝH</h1>
@@ -21,6 +21,6 @@
 
 ˙ǝʌoqɐ pǝʇsᴉl sǝʇᴉsqǝʍ lɐᴉɔᴉɟɟo ǝɥʇ ɯoɹɟ sǝsɐǝlǝɹ pɐoluʍop oʇ ʎluo pǝpuǝɯɯoɔǝɹ sᴉ ʇᴉ 'ʎɹɐssǝɔǝu ʇou ɥƃnoɥʇl∀
 
-˙[sǝsɐǝlǝɹ qnHʇᴉפ](https://github.com/HMCL-Community/HMCL-CE/releases) uᴉ ˥ƆWH ɟo uoᴉsɹǝʌ ʇsǝʇɐl ǝɥʇ puᴉɟ oslɐ uɐɔ no⅄
+˙[sǝsɐǝlǝɹ qnHʇᴉפ](https://github.com/Egg-China/Aura-Launcher/releases) uᴉ ˥ƆWH ɟo uoᴉsɹǝʌ ʇsǝʇɐl ǝɥʇ puᴉɟ oslɐ uɐɔ no⅄
 
-˙[ǝʇᴉsqǝʍ lɐᴉɔᴉɟɟo](https://github.com/HMCL-Community/HMCL-CE/releases/tag/v26.8-release.1) ǝɥʇ ɯoɹɟ uoᴉsɹǝʌ ʇsǝʇɐl ǝɥʇ pɐoluʍop
+Aura Launcher is currently private pre-release software. Every build version ends in `-next`.

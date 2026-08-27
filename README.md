@@ -1,80 +1,54 @@
-<div align="center">
-  <img src="HMCL/src/main/resources/assets/img/icon@8x.png" alt="HMCL CE" width="80">
-  <h1>HMCL CE</h1>
-  <p>社区驱动、跨平台、可扩展的 Minecraft 启动器</p>
+# Aura Launcher
 
-  [![Release](https://img.shields.io/github/v/release/HMCL-Community/HMCL-CE?style=flat-square)](https://github.com/HMCL-Community/HMCL-CE/releases)
-  [![Java CI](https://github.com/HMCL-Community/HMCL-CE/actions/workflows/gradle.yml/badge.svg)](https://github.com/HMCL-Community/HMCL-CE/actions/workflows/gradle.yml)
-  [![License](https://img.shields.io/badge/license-GPLv3-blue?style=flat-square)](LICENSE)
-  [![QQ Group](https://img.shields.io/badge/QQ-%E7%A4%BE%E5%8C%BA%E7%BE%A4-12B7F5?style=flat-square&logo=qq&logoColor=white)](https://qun.qq.com/universal-share/share?ac=1&authKey=pOw%2BTFtCWoazxuhJo6aSk%2BnmPW3lVVH0t5LCnE3ya2EFzj%2BEy9kHLci1ahepvW6t&busi_data=eyJncm91cENvZGUiOiIxMDk3MTIxNzUxIiwidG9rZW4iOiJXVzhRZkZEYit3N1BRT1o2dWNjQkw4WElFYjR0ZFQ3R01vYVo3bmsvR2htZThZNXhXOTgyQXpZYU5Ua2NNU3VsIiwidWluIjoiMzYxNjQzOTUwNSJ9&data=2bSHbitmgkNabOpdNYYdvazyW7GDY_7Mj7eeonhQ7whmvotadJdwtlQC5Sg60CxIo-uu9ZukUgzQUcQYGRMy6w&svctype=4&tempid=h5_group_info)
-  [![Bilibili](https://img.shields.io/badge/Bilibili-%E7%A4%BE%E5%8C%BA%E5%8A%A8%E6%80%81-00A1D6?style=flat-square&logo=bilibili&logoColor=white)](https://b23.tv/CTHjMv6)
-</div>
+Aura Launcher is Egg-China's future Minecraft launcher product line. It is currently a private,
+pre-release project built from the HMCL CE Next codebase while its launcher architecture is being
+prepared for later Java and Rust development.
 
-## 项目简介
+This repository is not a stable release channel. Every build identifies itself with a version
+ending in `-next`, and packaged launcher files use the name `Aura-Launcher-<version>.jar`.
+Automatic updates and built-in Aura Store discovery remain disabled until private release services
+are available. User-configured plugin sources continue to work.
 
-HMCL CE 是基于 [Hello Minecraft! Launcher（HMCL）](https://github.com/HMCL-dev/HMCL) 持续开发的开源 Minecraft 启动器。它保留 HMCL 的实例管理、自动安装、模组与整合包管理、多账户和跨平台能力，并维护独立的 CE 发布与扩展体系。
+## Current Compatibility
 
-CE 目前提供：
+- Java 17 or later is required to build and run the launcher.
+- Aura plugin packages (`.npl`) must use plugin manifest schema v5.
+- Store index document schema versions are independent from plugin manifest schema versions.
+- Aura keeps its live settings and data separate from HMCL CE.
+- A first-run or manual migration can copy an allowlisted subset of HMCL CE settings without
+  importing plugins, trust decisions, runtime-host bindings, caches, logs, or quarantine state.
 
-- Java、Kotlin 插件扩展；
-- 可配置的插件商店来源与 GitHub `hmclce` Topic 发现；
-- 插件权限、依赖、安装事务与运行时隔离；
-- 由社区完成插件审核，不以官方认证作为社区插件可用的前提；
-- GitHub Releases 自动更新、SHA-256 完整性校验和 CE 独立发布签名；
-- Windows、Linux、macOS、FreeBSD，以及 x86、ARM、RISC-V、MIPS、LoongArch 等平台支持。
+## Build
 
-平台兼容详情见 [支持平台](docs/PLATFORM_zh.md)，插件格式与开发约定见 [插件系统文档](docs/PLUGIN_SYSTEM.md)，插件开发 SDK 与示例见 [Plugin SDK](https://github.com/HMCL-Community/HMCL-CE-Plugin-SDK)。
+On Windows:
 
-## 下载与运行
+```powershell
+.\gradlew.bat :AuraLauncher:build --no-daemon
+```
 
-当前稳定版本为 **HMCL CE 26.8 Release 1**：
-
-- [下载 HMCL CE 26.8 Release 1](https://github.com/HMCL-Community/HMCL-CE/releases/tag/v26.8-release.1)
-- [查看全部版本](https://github.com/HMCL-Community/HMCL-CE/releases)
-
-下载适合当前系统的 `.exe`、`.jar`、`.sh` 或 `.deb` 文件，并使用发布页附带的 `.sha256` 文件核对完整性。直接运行 `.jar` 需要 Java 17 或更高版本，推荐使用 Java 21。
-
-## 从源码构建
-
-准备 JDK 17 或更高版本后，在仓库根目录执行：
+On Linux or macOS:
 
 ```bash
-./gradlew build
+./gradlew :AuraLauncher:build --no-daemon
 ```
 
-Windows PowerShell：
+Artifacts are written to `AuraLauncher/build/libs/`. Run the development launcher with:
 
 ```powershell
-.\gradlew.bat build
+.\gradlew.bat :AuraLauncher:run --no-daemon
 ```
 
-构建产物位于 `HMCL/build/libs/`。运行开发构建：
+## Source And License
 
-```powershell
-.\gradlew.bat :HMCL:run
-```
+Aura Launcher was imported as a source-only snapshot from
+[`HMCL-Community/HMCL-CE`](https://github.com/HMCL-Community/HMCL-CE), which itself is based on
+[`HMCL-dev/HMCL`](https://github.com/HMCL-dev/HMCL). The imported source commit is
+`5d8b16fda5012d5cc99067582d7d4f34d3f30d7d`.
 
-持续集成、测试和发布均由 [GitHub Actions](https://github.com/HMCL-Community/HMCL-CE/actions) 完成，不再依赖原 Jenkins 服务。
+The original Git history was intentionally not copied. Upstream copyright notices, third-party
+notices, compatibility package names, and GPL terms are retained. See
+[`docs/MIGRATION_PROVENANCE.md`](docs/MIGRATION_PROVENANCE.md), [`LICENSE`](LICENSE), and
+[`LICENSE.additional`](LICENSE.additional) for details.
 
-## 参与贡献
-
-- [报告问题或提出功能建议](https://github.com/HMCL-Community/HMCL-CE/issues/new/choose)
-- [提交 Pull Request](https://github.com/HMCL-Community/HMCL-CE/compare)
-- 阅读 [贡献指南](docs/Contributing_zh.md)
-
-插件审核与生态治理由社区共同完成。插件作者可以通过公开仓库、Release 和 `hmclce` Topic 发布插件，用户可以自行添加、检查和管理插件来源。
-
-## 上游归属与致谢
-
-HMCL CE 基于 [HMCL-dev/HMCL](https://github.com/HMCL-dev/HMCL) 的代码开发，感谢上游维护者与所有贡献者提供的基础代码、设计和长期工作。
-
-CE 的独立开发者与后续贡献记录可在 [本仓库贡献者页面](https://github.com/HMCL-Community/HMCL-CE/graphs/contributors) 查看。软件界面内保留上游作者、依赖项目及贡献者致谢信息。
-
-## 开源许可与原声明
-
-本项目依据 [GNU General Public License Version 3](LICENSE) 发布，并保留原 README 所声明的 GPLv3 第 7 条附加要求：
-
-1. 分发本软件的修改版本时，必须以合理方式修改软件名称或版本号，使其能够与原始版本区分。该要求依据 GPLv3 Section 7(c)。
-2. 不得移除软件界面中显示的版权声明。该要求依据 GPLv3 Section 7(b)。
-
-完整许可文本与条款以仓库中的 [LICENSE](LICENSE) 为准。任何再分发和衍生版本均须继续保留适用的作者归属、版权声明和许可信息。
+Aura Launcher is free software licensed under GNU General Public License version 3 with the retained
+additional terms described in the repository license files.

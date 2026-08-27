@@ -27,9 +27,9 @@ language-subtag-registry
 
 # gradle build
 /build/
-/HMCL/build/
-/HMCLCore/build/
-/HMCLBoot/build/
+/AuraLauncher/build/
+/AuraCore/build/
+/AuraBoot/build/
 /minecraft/libraries/HMCLTransformerDiscoveryService/build/
 /minecraft/libraries/HMCLMultiMCBootstrap/build/
 /buildSrc/build/
@@ -37,16 +37,16 @@ language-subtag-registry
 # idea
 .idea
 /out/
-/HMCL/out/
-/HMCLCore/out/
+/AuraLauncher/out/
+/AuraCore/out/
 /minecraft/libraries/HMCLTransformerDiscoveryService/out/
 /minecraft/libraries/HMCLMultiMCBootstrap/out/
 
 # eclipse
 /bin/
-/HMCL/bin/
-/HMCLBoot/bin/
-/HMCLCore/bin/
+/AuraLauncher/bin/
+/AuraBoot/bin/
+/AuraCore/bin/
 /minecraft/libraries/HMCLTransformerDiscoveryService/bin/
 /minecraft/libraries/HMCLMultiMCBootstrap/bin/
 .classpath
@@ -68,7 +68,7 @@ language-subtag-registry
 /hmcl.json
 /.hmcl.json
 /.hmcl/
-/HMCL/.hmcl/
+/AuraLauncher/.hmcl/
 
 # AI
 /.claude/
@@ -81,7 +81,7 @@ language-subtag-registry
 /.gradle-*/
 
 # Local launcher artifacts
-/HMCL-*.jar
+/Aura-Launcher-*.jar
 
-# Bundled CE launcher header
-!HMCL/launcher/HMCLauncher.exe
+# Bundled Aura launcher header
+!AuraLauncher/launcher/HMCLauncher.exe

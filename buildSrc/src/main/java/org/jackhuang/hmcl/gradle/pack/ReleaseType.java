@@ -17,21 +17,29 @@
  */
 package org.jackhuang.hmcl.gradle.pack;
 
-/// Debian packaging metadata for one HMCL release type.
+/// Debian packaging metadata for one Aura Launcher release type.
 ///
 /// The package name, installed command, desktop file, and alternatives
 /// priority are intentionally centralized here so `CreateDeb` can stay focused
 /// on archive layout instead of duplicating channel-specific branching.
 public enum ReleaseType {
-    STABLE("stable", "hmcl", "HMCL", 100),
-    DEVELOPMENT("beta", "hmcl-beta", "HMCL (Beta)", 200),
-    NIGHTLY("nightly", "hmcl-nightly", "HMCL (Nightly)", 300);
+    /// Stable release channel.
+    STABLE("stable", "aura-launcher", "Aura Launcher", 100),
+    /// Development preview channel.
+    DEVELOPMENT("beta", "aura-launcher-beta", "Aura Launcher (Beta)", 200),
+    /// Per-commit nightly channel.
+    NIGHTLY("nightly", "aura-launcher-nightly", "Aura Launcher (Nightly)", 300);
 
+    /// Filesystem-safe release channel name.
     private final String name;
+    /// Debian package name.
     private final String packageName;
+    /// Desktop-visible launcher name.
     private final String displayName;
+    /// Priority within the shared alternatives group.
     private final int alternativesPriority;
 
+    /// Creates release metadata for one packaging channel.
     ReleaseType(String name, String packageName, String displayName, int alternativesPriority) {
         this.name = name;
         this.packageName = packageName;
@@ -39,7 +47,7 @@ public enum ReleaseType {
         this.alternativesPriority = alternativesPriority;
     }
 
-    ///
+    /// Returns the filesystem-safe release channel name.
     public String getName() {
         return name;
     }
@@ -49,6 +57,7 @@ public enum ReleaseType {
         return packageName;
     }
 
+    /// Returns the desktop-visible launcher name.
     public String getDisplayName() {
         return displayName;
     }

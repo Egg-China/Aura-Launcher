@@ -20,17 +20,17 @@ package org.jackhuang.hmcl.gradle.ci;
 import java.util.Objects;
 import org.jetbrains.annotations.NotNullByDefault;
 
-/// Detects official HMCL CE builds running in the canonical GitHub Actions repository.
+/// Detects official Aura Launcher builds running in the canonical GitHub Actions repository.
 ///
 /// @author Glavo
 @NotNullByDefault
 public final class GitHubActionUtils {
-    /// GitHub organization that owns the canonical HMCL CE repository.
-    private static final String OFFICIAL_ORGANIZATION = "HMCL-Community";
+    /// Canonical GitHub repository slug used for official Aura build-channel selection.
+    private static final String OFFICIAL_REPOSITORY = "Egg-China/Aura-Launcher";
 
-    /// Whether the current process is a non-pull-request GitHub Actions build in the official organization.
+    /// Whether the current process is a non-pull-request GitHub Actions build in the official repository.
     public static final boolean IS_ON_OFFICIAL_REPO =
-            OFFICIAL_ORGANIZATION.equalsIgnoreCase(System.getenv("GITHUB_REPOSITORY_OWNER"))
+            OFFICIAL_REPOSITORY.equalsIgnoreCase(System.getenv("GITHUB_REPOSITORY"))
                     && Objects.requireNonNullElse(System.getenv("GITHUB_BASE_REF"), "").isBlank();
 
     /// Prevents construction of the CI environment utility.

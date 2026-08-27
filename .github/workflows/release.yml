@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version without the leading v
+        description: Aura version without the leading v or trailing -next
         required: true
         type: string
       prerelease:
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   release:
-    if: github.repository == 'HMCL-Community/HMCL-CE'
+    if: github.repository == 'Egg-China/Aura-Launcher'
     runs-on: ubuntu-latest
     steps:
       - name: Validate version
@@ -48,21 +48,21 @@ jobs:
       - name: Prepare release signing key
         shell: bash
         env:
-          HMCL_SIGNATURE_KEY_BASE64: ${{ secrets.HMCL_SIGNATURE_KEY_BASE64 }}
+          AURA_SIGNATURE_KEY_BASE64: ${{ secrets.AURA_SIGNATURE_KEY_BASE64 }}
         run: |
-          if [ -z "$HMCL_SIGNATURE_KEY_BASE64" ]; then
-            echo "HMCL_SIGNATURE_KEY_BASE64 is required" >&2
+          if [ -z "$AURA_SIGNATURE_KEY_BASE64" ]; then
+            echo "AURA_SIGNATURE_KEY_BASE64 is required" >&2
             exit 1
           fi
-          key="$RUNNER_TEMP/hmcl-ce-signature-key.pk8"
-          printf '%s' "$HMCL_SIGNATURE_KEY_BASE64" | base64 --decode > "$key"
+          key="$RUNNER_TEMP/aura-launcher-signature-key.pk8"
+          printf '%s' "$AURA_SIGNATURE_KEY_BASE64" | base64 --decode > "$key"
           test -s "$key"
           chmod 600 "$key"
-          echo "HMCL_SIGNATURE_KEY=$key" >> "$GITHUB_ENV"
+          echo "AURA_SIGNATURE_KEY=$key" >> "$GITHUB_ENV"
       - name: Verify xvfb
         run: command -v xvfb-run
       - name: Build release artifacts
-        run: xvfb-run -a ./gradlew clean :HMCL:build --no-daemon --parallel --stacktrace
+        run: xvfb-run -a ./gradlew clean :AuraLauncher:build --no-daemon --parallel --stacktrace
         env:
           BUILD_VERSION: ${{ inputs.version }}
           VERSION_TYPE: ${{ inputs.prerelease && 'dev' || 'stable' }}
@@ -74,9 +74,9 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          cd HMCL/build/libs
+          cd AuraLauncher/build/libs
           for extension in jar exe sh deb; do
-            file="HMCL-CE-$RELEASE_VERSION.$extension"
+            file="Aura-Launcher-$RELEASE_VERSION-next.$extension"
             test -s "$file"
             test -s "$file.sha256"
             printf '%s  %s\n' "$(tr -d '\r\n' < "$file.sha256")" "$file" | sha256sum -c -
@@ -84,19 +84,19 @@ jobs:
       - name: Upload build evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: HMCL-CE-${{ inputs.version }}
+          name: Aura-Launcher-${{ inputs.version }}-next
           path: |
-            HMCL/build/libs/HMCL-CE-${{ inputs.version }}.jar*
-            HMCL/build/libs/HMCL-CE-${{ inputs.version }}.exe*
-            HMCL/build/libs/HMCL-CE-${{ inputs.version }}.sh*
-            HMCL/build/libs/HMCL-CE-${{ inputs.version }}.deb*
+            AuraLauncher/build/libs/Aura-Launcher-${{ inputs.version }}-next.jar*
+            AuraLauncher/build/libs/Aura-Launcher-${{ inputs.version }}-next.exe*
+            AuraLauncher/build/libs/Aura-Launcher-${{ inputs.version }}-next.sh*
+            AuraLauncher/build/libs/Aura-Launcher-${{ inputs.version }}-next.deb*
           if-no-files-found: error
       - name: Generate release notes
         shell: bash
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          release_title="HMCL CE ${RELEASE_VERSION/-release./ Release }"
+          release_title="Aura Launcher ${RELEASE_VERSION/-release./ Release }-next"
           release_title="${release_title/-beta./ Beta }"
           release_title="${release_title/-preview./ Preview }"
           {
@@ -117,12 +117,12 @@ jobs:
           if [ "$PRERELEASE" = "true" ]; then
             flags+=(--prerelease)
           fi
-          release_title="HMCL CE ${RELEASE_VERSION/-release./ Release }"
+          release_title="Aura Launcher ${RELEASE_VERSION/-release./ Release }-next"
           release_title="${release_title/-beta./ Beta }"
           release_title="${release_title/-preview./ Preview }"
-          gh release create "v$RELEASE_VERSION" \
-            HMCL/build/libs/HMCL-CE-$RELEASE_VERSION.{jar,exe,sh,deb} \
-            HMCL/build/libs/HMCL-CE-$RELEASE_VERSION.{jar,exe,sh,deb}.sha256 \
+          gh release create "v$RELEASE_VERSION-next" \
+            AuraLauncher/build/libs/Aura-Launcher-$RELEASE_VERSION-next.{jar,exe,sh,deb} \
+            AuraLauncher/build/libs/Aura-Launcher-$RELEASE_VERSION-next.{jar,exe,sh,deb}.sha256 \
             --target "$GITHUB_SHA" \
             --title "$release_title" \
             --notes-file RELEASE_NOTE.md \

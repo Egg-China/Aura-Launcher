@@ -1,8 +1,8 @@
-rootProject.name = "HMCL3"
+rootProject.name = "AuraLauncher"
 include(
-    "HMCL",
-    "HMCLCore",
-    "HMCLBoot"
+    "AuraLauncher",
+    "AuraCore",
+    "AuraBoot"
 )
 
 val minecraftLibraries = listOf("HMCLTransformerDiscoveryService", "HMCLMultiMCBootstrap")

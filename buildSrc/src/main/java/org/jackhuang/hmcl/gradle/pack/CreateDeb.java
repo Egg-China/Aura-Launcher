@@ -41,31 +41,35 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.zip.GZIPOutputStream;
 
-/// Creates a Debian package for the current HMCL channel.
+/// Creates a Debian package for the current Aura Launcher channel.
 ///
 /// ## Package layout
 ///
 /// The generated `data.tar.gz` contains four installed artifacts:
 ///
-/// - the bundled HMCL shell launcher under `/usr/share/java/hmcl/`
+/// - the bundled Aura Launcher shell launcher under `/usr/share/java/aura-launcher/`
 /// - a channel-specific command under `/usr/bin/`
 /// - a desktop entry under `/usr/share/applications/`
-/// - the HMCL icon under `/usr/share/icons/hicolor/256x256/apps/`
+/// - the Aura Launcher icon under `/usr/share/icons/hicolor/256x256/apps/`
 ///
 /// ## Channel commands and aliases
 ///
-/// Every package installs a channel-specific executable such as `hmcl-stable`
-/// or `hmcl-beta`. The generic `hmcl` command is intentionally not shipped as a
+/// Every package installs a channel-specific executable such as `aura-launcher-stable`
+/// or `aura-launcher-beta`. The generic `aura-launcher` command is intentionally not shipped as a
 /// plain file. Instead, maintainer scripts register the channel command into
-/// the shared `hmcl` alternatives group so multiple channel packages can
+/// the shared `aura-launcher` alternatives group so multiple channel packages can
 /// coexist without file conflicts.
 ///
 /// @author Glavo
 public abstract class CreateDeb extends DefaultTask {
+    /// Logger used for archive-generation progress.
     public static final Logger LOGGER = Logging.getLogger(CreateDeb.class);
 
+    /// POSIX mode for directories in the generated tar archive.
     private static final int DIRECTORY_MODE = 0755;
+    /// POSIX mode for executable files in the generated tar archive.
     private static final int EXECUTABLE_MODE = 0755;
+    /// POSIX mode for regular files in the generated tar archive.
     private static final int REGULAR_FILE_MODE = 0644;
 
     /// Debian version written into the `control` file and output filename.
@@ -92,28 +96,34 @@ public abstract class CreateDeb extends DefaultTask {
     @OutputFile
     public abstract RegularFileProperty getOutputFile();
 
+    /// Returns the configured release type after Gradle property resolution.
     private ReleaseType getCurrentType() {
         return getReleaseType().get();
     }
 
+    /// Returns the filesystem-safe name of the configured release type.
     private String getCurrentTypeName() {
         return getCurrentType().getName();
     }
 
+    /// Returns the channel-specific executable path installed by the package.
     private String getLauncherPath() {
-        return "/usr/bin/hmcl-" + getCurrentTypeName();
+        return "/usr/bin/aura-launcher-" + getCurrentTypeName();
     }
 
+    /// Returns the installed path of the bundled launcher shell artifact.
     private String getTargetPath() {
-        return "/usr/share/java/hmcl/" + getAppShFile().getAsFile().get().getName();
+        return "/usr/share/java/aura-launcher/" + getAppShFile().getAsFile().get().getName();
     }
 
+    /// Returns the installed path of the desktop entry.
     private String getDesktopFilePath() {
-        return "/usr/share/applications/hmcl-%s.desktop".formatted(getCurrentTypeName());
+        return "/usr/share/applications/aura-launcher-%s.desktop".formatted(getCurrentTypeName());
     }
 
+    /// Returns the installed path of the desktop icon.
     private String getIconTargetPath() {
-        return "/usr/share/icons/hicolor/256x256/apps/hmcl-%s.png".formatted(getCurrentTypeName());
+        return "/usr/share/icons/hicolor/256x256/apps/aura-launcher-%s.png".formatted(getCurrentTypeName());
     }
 
     /// Ensures parent directories exist in the tar stream before child entries are written.
@@ -233,33 +243,34 @@ public abstract class CreateDeb extends DefaultTask {
                 Architecture: all
                 Installed-Size: %d
                 Maintainer: Glavo <zjx001202@gmail.com>
-                Description: Hello Minecraft! Launcher
-                Homepage: https://github.com/HMCL-Community/HMCL-CE
+                Description: Aura Launcher
+                Homepage: https://github.com/Egg-China/Aura-Launcher
                 """.formatted(getCurrentType().getPackageName(), getVersion().get(), Math.max(installedSize, 1)) + "\n";
     }
 
-    private static final String COMMON_LAUNCHER_PATH = "/usr/bin/hmcl";
+    /// Generic command managed through the Aura Launcher alternatives group.
+    private static final String COMMON_LAUNCHER_PATH = "/usr/bin/aura-launcher";
 
-    /// Registers the channel command into the shared `hmcl` alternatives group.
+    /// Registers the channel command into the shared `aura-launcher` alternatives group.
     private String getPostinst() {
         return """
                 #!/bin/sh
                 set -e
                 
                 if [ "$1" = configure ]; then
-                    update-alternatives --install %s hmcl %s %d
+                    update-alternatives --install %s aura-launcher %s %d
                 fi
                 """.formatted(COMMON_LAUNCHER_PATH, getLauncherPath(), getCurrentType().getAlternativesPriority());
     }
 
-    /// Removes the channel command from the shared `hmcl` alternatives group.
+    /// Removes the channel command from the shared `aura-launcher` alternatives group.
     private String getPrerm() {
         return """
                 #!/bin/sh
                 set -e
                 
                 if [ "$1" = remove ] || [ "$1" = deconfigure ]; then
-                    update-alternatives --remove hmcl %s
+                    update-alternatives --remove aura-launcher %s
                 fi
                 """.formatted(getLauncherPath());
     }
@@ -269,18 +280,18 @@ public abstract class CreateDeb extends DefaultTask {
         return """
                 #!/usr/bin/env bash
                 cd "$HOME"
-                if [ -z "${HMCL_USER_HOME:-}" ]; then
+                if [ -z "${AURA_HOME:-}" ]; then
                     if [ -z "${XDG_DATA_HOME:-}" ]; then
-                        export HMCL_USER_HOME="$HOME/.local/share/hmcl"
+                        export AURA_HOME="$HOME/.local/share/aura-launcher"
                     else
-                        export HMCL_USER_HOME="$XDG_DATA_HOME/hmcl"
+                        export AURA_HOME="$XDG_DATA_HOME/aura-launcher"
                     fi
                 fi
-                if [ -z "${HMCL_LOCAL_HOME:-}" ]; then
-                    export HMCL_LOCAL_HOME="$HMCL_USER_HOME/local-%s"
+                if [ -z "${AURA_LOCAL_HOME:-}" ]; then
+                    export AURA_LOCAL_HOME="$AURA_HOME/local-%s"
                 fi
-                if [ -z "${HMCL_DEPENDENCIES_DIR:-}" ]; then
-                    export HMCL_DEPENDENCIES_DIR="$HMCL_USER_HOME/dependencies"
+                if [ -z "${AURA_DEPENDENCIES_DIR:-}" ]; then
+                    export AURA_DEPENDENCIES_DIR="$AURA_HOME/dependencies"
                 fi
                 exec %s "$@"
                 """.formatted(getCurrentTypeName(), getTargetPath());
@@ -292,7 +303,7 @@ public abstract class CreateDeb extends DefaultTask {
                 [Desktop Entry]
                 Type=Application
                 Name=%s
-                Comment=Hello Minecraft! Launcher
+                Comment=Aura Launcher
                 Exec=%s
                 Icon=%s
                 Terminal=false

@@ -34,12 +34,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * @author Glavo
- */
+/// Resolves JavaFX dependencies for supported build platforms and generates their resource index.
+///
+/// @author Glavo
 public final class JavaFXUtils {
+    /// JavaFX modules required by the launcher.
     public static final String[] MODULES = {"base", "graphics", "controls"};
 
+    /// Adds platform-matched JavaFX dependencies when JavaFX is absent from the build JVM.
     private static void addDependencies(Project rootProject) {
         try {
             Class.forName("javafx.application.Application", false, JavaFXUtils.class.getClassLoader());
@@ -93,6 +95,7 @@ public final class JavaFXUtils {
         }
     }
 
+    /// Generates the launcher resource describing downloadable OpenJFX artifacts.
     private static void generateOpenJFXDependencies(Task task) {
         JsonObject dependenciesJson = new JsonObject();
         JavaFXPlatform.ALL.forEach((name, platform) -> {
@@ -128,7 +131,7 @@ public final class JavaFXUtils {
             dependenciesJson.add(name, platformJson);
         });
 
-        Path outputFile = task.getProject().getRootProject().file("HMCL/src/main/resources/assets/openjfx-dependencies.json").toPath().toAbsolutePath().normalize();
+        Path outputFile = task.getProject().getRootProject().file("AuraLauncher/src/main/resources/assets/openjfx-dependencies.json").toPath().toAbsolutePath().normalize();
         try {
             Files.createDirectories(outputFile.getParent());
             Files.writeString(outputFile, new GsonBuilder().setPrettyPrinting().create().toJson(dependenciesJson));
@@ -137,6 +140,7 @@ public final class JavaFXUtils {
         }
     }
 
+    /// Warms the configured mirror by reading the first bytes of each supported JavaFX artifact.
     private static void preTouchOpenJFXDependencies(Task task) {
         String mirrorRepo = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public";
 
@@ -161,6 +165,7 @@ public final class JavaFXUtils {
         });
     }
 
+    /// Registers JavaFX dependency resolution and maintenance tasks on the root project.
     public static void register(Project rootProject) {
         addDependencies(rootProject);
 

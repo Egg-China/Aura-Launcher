@@ -83,8 +83,8 @@ defaultTasks("clean", "build")
 tasks.register<ParseLanguageSubtagRegistry>("parseLanguageSubtagRegistry") {
     languageSubtagRegistryFile.set(layout.projectDirectory.file("language-subtag-registry"))
 
-    sublanguagesFile.set(layout.projectDirectory.file("HMCLCore/src/main/resources/assets/lang/sublanguages.csv"))
-    defaultScriptFile.set(layout.projectDirectory.file("HMCLCore/src/main/resources/assets/lang/default_script.csv"))
+    sublanguagesFile.set(layout.projectDirectory.file("AuraCore/src/main/resources/assets/lang/sublanguages.csv"))
+    defaultScriptFile.set(layout.projectDirectory.file("AuraCore/src/main/resources/assets/lang/default_script.csv"))
 }
 
 tasks.register<UpdateDocuments>("updateDocuments") {
