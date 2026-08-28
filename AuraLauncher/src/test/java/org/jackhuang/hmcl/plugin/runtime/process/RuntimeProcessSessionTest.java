@@ -143,7 +143,7 @@ final class RuntimeProcessSessionTest {
             assertEquals(List.of(1L, 3L, 5L, 7L, 9L, 11L),
                     childMessages.stream().map(RuntimeProcessMessage::requestId).toList());
             RuntimeProcessMessage.Load load = assertInstanceOf(RuntimeProcessMessage.Load.class, childMessages.get(1));
-            assertEquals(temporaryDirectory.toAbsolutePath().normalize().toString(), load.packageRoot());
+            assertEquals(temporaryDirectory.toRealPath().toString(), load.packageRoot());
             assertEquals("payload/plugin.dll", load.entrypoint());
             assertEquals(1L, load.pluginId());
             assertEquals(1L, load.session());
@@ -284,12 +284,13 @@ final class RuntimeProcessSessionTest {
         }
     }
 
-    /// Closing an active payload repeatedly terminates its process only once.
+    /// Closing a stuck active payload repeatedly terminates its process only once.
     @Test
     void closeIsIdempotent() throws Exception {
+        CountDownLatch stuck = new CountDownLatch(1);
         ScriptedProcess process = new ScriptedProcess(endpoint -> {
             completeHandshake(endpoint, new ArrayList<>());
-            endpoint.read();
+            stuck.await();
             return 0;
         }, true);
         ScheduledExecutorService scheduler = scheduler();
@@ -305,6 +306,7 @@ final class RuntimeProcessSessionTest {
             assertEquals(1, process.destroyCalls.get());
             assertEquals(0, process.forceDestroyCalls.get());
         } finally {
+            stuck.countDown();
             scheduler.shutdownNow();
             process.destroyForcibly();
         }
