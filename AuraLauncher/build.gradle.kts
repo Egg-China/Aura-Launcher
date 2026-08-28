@@ -36,8 +36,13 @@ val versionRoot = System.getenv("VERSION_ROOT") ?: projectConfig.getProperty("ve
 val buildVersion = System.getenv("BUILD_VERSION")?.takeIf(String::isNotBlank)
 val nextVersionSuffix = "-next"
 
-fun String.withNextVersionSuffix(): String =
-    if (endsWith(nextVersionSuffix)) this else "$this$nextVersionSuffix"
+fun String.withNextVersionSuffix(): String {
+    val suffixIndex = indexOf(nextVersionSuffix)
+    require(suffixIndex < 0 || suffixIndex == length - nextVersionSuffix.length) {
+        "Launcher version may contain $nextVersionSuffix only once at the end: $this"
+    }
+    return if (suffixIndex < 0) "$this$nextVersionSuffix" else this
+}
 
 val microsoftAuthId = System.getenv("MICROSOFT_AUTH_ID") ?: ""
 val curseForgeApiKey = System.getenv("CURSEFORGE_API_KEY") ?: ""
