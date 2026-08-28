@@ -158,11 +158,12 @@ final class RuntimeProcessSessionTest {
     /// A mismatched response ID poisons the payload and terminates its child exactly once.
     @Test
     void poisonsAndKillsChildOnResponseIdMismatch() throws Exception {
+        CountDownLatch stuck = new CountDownLatch(1);
         ScriptedProcess process = new ScriptedProcess(endpoint -> {
             completeHandshake(endpoint, new ArrayList<>());
             RuntimeProcessMessage.Enable enable = expect(endpoint, RuntimeProcessMessage.Enable.class);
             endpoint.write(new RuntimeProcessMessage.Ok(enable.requestId() + 2L));
-            endpoint.read();
+            stuck.await();
             return 0;
         }, true);
         ScheduledExecutorService scheduler = scheduler();
@@ -179,6 +180,7 @@ final class RuntimeProcessSessionTest {
             assertFalse(process.isAlive());
             assertEquals(1, process.destroyCalls.get() + process.forceDestroyCalls.get());
         } finally {
+            stuck.countDown();
             scheduler.shutdownNow();
             process.destroyForcibly();
         }
