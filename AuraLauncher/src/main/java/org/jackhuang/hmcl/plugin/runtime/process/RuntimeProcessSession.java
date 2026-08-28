@@ -29,8 +29,12 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -154,15 +158,7 @@ public final class RuntimeProcessSession implements AutoCloseable {
         if (context.executionMode() != PluginExecutionMode.ISOLATED) {
             throw new IOException("Runtime process Host cannot load execution mode: " + context.executionMode());
         }
-        Path canonicalExecutable;
-        try {
-            canonicalExecutable = executable.toRealPath();
-        } catch (IOException exception) {
-            throw new IOException("Runtime process Host executable cannot be resolved: " + executable, exception);
-        }
-        if (!Files.isRegularFile(canonicalExecutable)) {
-            throw new IOException("Runtime process Host executable is not a regular file: " + executable);
-        }
+        Path canonicalExecutable = prepareExecutable(executable);
         Path packageRoot = context.packagePath().toRealPath();
         if (!Files.isDirectory(packageRoot)) {
             throw new IOException("Runtime process payload root is not a directory: " + packageRoot);
@@ -193,6 +189,41 @@ public final class RuntimeProcessSession implements AutoCloseable {
             payload.close();
             throw exception;
         }
+    }
+
+    /// Resolves one process Host and restores only its owner execute bit after byte-only package extraction.
+    ///
+    /// @param executable process Host path from the verified package
+    /// @return canonical executable path
+    /// @throws IOException if the path is missing, irregular, permission-incompatible, or remains non-executable
+    static Path prepareExecutable(Path executable) throws IOException {
+        Path canonicalExecutable;
+        try {
+            canonicalExecutable = executable.toRealPath();
+        } catch (IOException exception) {
+            throw new IOException("Runtime process Host executable cannot be resolved: " + executable, exception);
+        }
+        if (!Files.isRegularFile(canonicalExecutable)) {
+            throw new IOException("Runtime process Host executable is not a regular file: " + executable);
+        }
+        if (!Files.isExecutable(canonicalExecutable)) {
+            @Nullable PosixFileAttributeView attributes = Files.getFileAttributeView(
+                    canonicalExecutable,
+                    PosixFileAttributeView.class
+            );
+            if (attributes == null) {
+                throw new IOException("Runtime process Host cannot acquire executable permission: " + executable);
+            }
+            Set<PosixFilePermission> current = attributes.readAttributes().permissions();
+            EnumSet<PosixFilePermission> updated = EnumSet.noneOf(PosixFilePermission.class);
+            updated.addAll(current);
+            updated.add(PosixFilePermission.OWNER_EXECUTE);
+            attributes.setPermissions(updated);
+        }
+        if (!Files.isExecutable(canonicalExecutable)) {
+            throw new IOException("Runtime process Host is not executable: " + executable);
+        }
+        return canonicalExecutable;
     }
 
     /// Enables the loaded isolated payload.

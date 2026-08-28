@@ -33,11 +33,15 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -75,6 +79,31 @@ final class RuntimeProcessSessionTest {
                 ));
 
         assertTrue(failure.getMessage().contains("executable"));
+    }
+
+    /// Restores the owner execute bit removed by byte-only plugin package extraction.
+    @Test
+    void preparesExtractedHostForExecution() throws IOException {
+        String name = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows")
+                ? "extracted-runtime-host.exe"
+                : "extracted-runtime-host";
+        Path executable = Files.write(temporaryDirectory.resolve(name), new byte[]{0x41});
+        @Nullable PosixFileAttributeView attributes = Files.getFileAttributeView(
+                executable,
+                PosixFileAttributeView.class
+        );
+        if (attributes != null) {
+            attributes.setPermissions(Set.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE
+            ));
+            assertFalse(Files.isExecutable(executable));
+        }
+
+        Path prepared = RuntimeProcessSession.prepareExecutable(executable);
+
+        assertEquals(executable.toRealPath(), prepared);
+        assertTrue(Files.isExecutable(prepared));
     }
 
     /// Starts an exact child process and completes all lifecycle and Bridge callback operations.
