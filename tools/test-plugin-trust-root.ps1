@@ -2,18 +2,13 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $gradle = Join-Path $repositoryRoot 'gradlew.bat'
-$temporary = Join-Path ([System.IO.Path]::GetTempPath()) `
-    ('aura-plugin-root-test-' + [guid]::NewGuid().ToString('N'))
-$gradleHome = Join-Path $temporary 'gradle-home'
-$projectCache = Join-Path $temporary 'project-cache'
-[void](New-Item -ItemType Directory -Path $gradleHome)
-[void](New-Item -ItemType Directory -Path $projectCache)
-$sharedWrapperDists = Join-Path ([System.Environment]::GetFolderPath('UserProfile')) '.gradle\wrapper\dists'
-if (Test-Path -LiteralPath $sharedWrapperDists) {
-    $isolatedWrapperDists = Join-Path $gradleHome 'wrapper\dists'
-    [void](New-Item -ItemType Directory -Path $isolatedWrapperDists -Force)
-    Copy-Item -Path (Join-Path $sharedWrapperDists '*') -Destination $isolatedWrapperDists -Recurse
-}
+$generatedRoot = Join-Path $repositoryRoot 'AuraLauncher\build\generated\plugin-trust\aura-plugin-root.json'
+$temporary = $null
+$gradleHome = $null
+$projectCache = $null
+$generatedRootSnapshotReady = $false
+$generatedRootExisted = $false
+[byte[]]$generatedRootContents = @()
 
 function New-TestKey([byte]$Seed) {
     [byte[]]$prefix = @(0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00)
@@ -45,17 +40,22 @@ function New-RootJson(
     [System.Collections.IDictionary]$Keys,
     [System.Collections.IDictionary]$Roles,
     [string]$StatusUrl = '',
-    [string]$Expires = '2036-08-29T00:00:00Z'
+    [string]$Expires = '2036-08-29T00:00:00Z',
+    [object]$Version = 1
 ) {
+    $signed = [ordered]@{
+        _type = 'root'
+        schemaVersion = 1
+        expires = $Expires
+        statusUrl = $StatusUrl
+        keys = $Keys
+        roles = $Roles
+    }
+    if ($null -ne $Version) {
+        $signed.version = $Version
+    }
     return [ordered]@{
-        signed = [ordered]@{
-            _type = 'root'
-            schemaVersion = 1
-            expires = $Expires
-            statusUrl = $StatusUrl
-            keys = $Keys
-            roles = $Roles
-        }
+        signed = $signed
         signatures = @()
     } | ConvertTo-Json -Compress -Depth 16
 }
@@ -74,11 +74,45 @@ function Invoke-RootBuild([string]$Name, [AllowNull()][string]$RootJson) {
             --project-cache-dir $projectCache 2>&1 | Out-String
         $exitCode = $LASTEXITCODE
     } finally {
-        $ErrorActionPreference = $previousPreference
-        $env:AURA_PLUGIN_ROOT_JSON = $previousRoot
-        $env:GRADLE_USER_HOME = $previousGradleHome
+        try {
+            Restore-GeneratedRoot
+        } finally {
+            $ErrorActionPreference = $previousPreference
+            $env:AURA_PLUGIN_ROOT_JSON = $previousRoot
+            $env:GRADLE_USER_HOME = $previousGradleHome
+        }
     }
+    Assert-GeneratedRootRestored
     return [pscustomobject]@{ Name = $Name; ExitCode = $exitCode; Output = $output }
+}
+
+function Restore-GeneratedRoot {
+    if (-not $generatedRootSnapshotReady) {
+        return
+    }
+    if ($generatedRootExisted) {
+        [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $generatedRoot))
+        [System.IO.File]::WriteAllBytes($generatedRoot, $generatedRootContents)
+    } elseif (Test-Path -LiteralPath $generatedRoot) {
+        Remove-Item -LiteralPath $generatedRoot -Force
+    }
+}
+
+function Assert-GeneratedRootRestored {
+    if ($generatedRootExisted) {
+        if (-not (Test-Path -LiteralPath $generatedRoot)) {
+            throw 'Generated plugin trust root was removed by a fixture'
+        }
+        [byte[]]$actual = [System.IO.File]::ReadAllBytes($generatedRoot)
+        if (-not [System.Collections.StructuralComparisons]::StructuralEqualityComparer.Equals(
+                $actual,
+                $generatedRootContents
+            )) {
+            throw 'Generated plugin trust root was not restored after a fixture'
+        }
+    } elseif (Test-Path -LiteralPath $generatedRoot) {
+        throw 'Generated plugin trust root was not removed after a fixture'
+    }
 }
 
 function Assert-Succeeds([object]$Result) {
@@ -97,6 +131,25 @@ function Assert-Fails([object]$Result, [string]$Expected) {
 }
 
 try {
+    $generatedRootExisted = Test-Path -LiteralPath $generatedRoot
+    if ($generatedRootExisted) {
+        $generatedRootContents = [System.IO.File]::ReadAllBytes($generatedRoot)
+    }
+    $generatedRootSnapshotReady = $true
+
+    $temporary = Join-Path ([System.IO.Path]::GetTempPath()) `
+        ('aura-plugin-root-test-' + [guid]::NewGuid().ToString('N'))
+    $gradleHome = Join-Path $temporary 'gradle-home'
+    $projectCache = Join-Path $temporary 'project-cache'
+    [void](New-Item -ItemType Directory -Path $gradleHome)
+    [void](New-Item -ItemType Directory -Path $projectCache)
+    $sharedWrapperDists = Join-Path ([System.Environment]::GetFolderPath('UserProfile')) '.gradle\wrapper\dists'
+    if (Test-Path -LiteralPath $sharedWrapperDists) {
+        $isolatedWrapperDists = Join-Path $gradleHome 'wrapper\dists'
+        [void](New-Item -ItemType Directory -Path $isolatedWrapperDists -Force)
+        Copy-Item -Path (Join-Path $sharedWrapperDists '*') -Destination $isolatedWrapperDists -Recurse
+    }
+
     $key1 = New-TestKey 1
     $key2 = New-TestKey 33
     $key3 = New-TestKey 65
@@ -122,6 +175,22 @@ try {
     Assert-Succeeds (Invoke-RootBuild 'checked-in development root' $null)
     Assert-Succeeds (Invoke-RootBuild 'official-only root' $officialRoot)
     Assert-Succeeds (Invoke-RootBuild 'complete certification root' $completeRoot)
+
+    Assert-Fails (
+        Invoke-RootBuild 'missing root version' (New-RootJson $officialKeys $officialRoles -Version $null)
+    ) 'version'
+
+    Assert-Fails (
+        Invoke-RootBuild 'zero root version' (New-RootJson $officialKeys $officialRoles -Version 0)
+    ) 'positive'
+
+    Assert-Fails (
+        Invoke-RootBuild 'negative root version' (New-RootJson $officialKeys $officialRoles -Version -1)
+    ) 'version'
+
+    Assert-Fails (
+        Invoke-RootBuild 'fractional root version' (New-RootJson $officialKeys $officialRoles -Version 1.5)
+    ) 'version'
 
     Assert-Fails (
         Invoke-RootBuild 'expired root' (
@@ -174,15 +243,21 @@ try {
 
     Write-Host 'Aura plugin trust-root profile tests passed.'
 } finally {
-    $resolvedTemporary = [System.IO.Path]::GetFullPath($temporary)
-    $resolvedSystemTemporary = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
-    if (-not $resolvedTemporary.StartsWith(
-            $resolvedSystemTemporary,
-            [System.StringComparison]::OrdinalIgnoreCase
-        )) {
-        throw "Refusing to remove non-temporary path: $resolvedTemporary"
+    try {
+        Restore-GeneratedRoot
+    } finally {
+        if ($null -ne $temporary) {
+            $resolvedTemporary = [System.IO.Path]::GetFullPath($temporary)
+            $resolvedSystemTemporary = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+            if (-not $resolvedTemporary.StartsWith(
+                    $resolvedSystemTemporary,
+                    [System.StringComparison]::OrdinalIgnoreCase
+                )) {
+                throw "Refusing to remove non-temporary path: $resolvedTemporary"
+            }
+            Remove-Item -LiteralPath $resolvedTemporary -Recurse -Force
+        }
     }
-    Remove-Item -LiteralPath $resolvedTemporary -Recurse -Force
 }
 
 $global:LASTEXITCODE = 0

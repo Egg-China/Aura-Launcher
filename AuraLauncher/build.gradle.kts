@@ -246,6 +246,9 @@ fun validatePluginTrustRoot(contents: String, requireOfficialRepository: Boolean
         || exactPluginTrustRootInteger(signed["schemaVersion"], "schemaVersion") != 1) {
         throw GradleException("Plugin trust root must use root schema version 1")
     }
+    if (exactPluginTrustRootInteger(signed["version"], "version") <= 0) {
+        throw GradleException("Plugin trust root version must be a positive integer")
+    }
     val expires = try {
         Instant.parse(signed["expires"] as? String
             ?: throw GradleException("Plugin trust root is missing expires"))
