@@ -26,7 +26,7 @@ English ([Standard](README.md), [uʍoᗡ ǝpᴉsd∩](README_en_Qabs.md)) | **�
 
 ## 简介
 
-Aura Launcher 是基于 Aura Launcher 上游持续开发的开源、跨平台 Minecraft 启动器。除模组管理、游戏自定义、整合包安装和多平台支持外，CE 还提供插件管理、插件商店来源管理，以及带签名校验的更新链。
+Aura Launcher 基于既有开源代码持续开发，是一款开源、跨平台 Minecraft 启动器。除模组管理、游戏自定义、整合包安装和多平台支持外，Aura Launcher 还提供插件管理、插件商店来源管理，以及带签名校验的更新链。
 
 Aura Launcher 有着强大的跨平台能力。它不仅支持 Windows、Linux、macOS、FreeBSD 等常见的操作系统，同时也支持 x86、ARM、RISC-V、MIPS、LoongArch 等不同的 CPU 架构。你可以使用 Aura Launcher 在不同平台上轻松地游玩 Minecraft。
 
@@ -41,7 +41,7 @@ Aura Launcher 目前是私有预发布项目，尚无公开稳定版本。所有
 
 ## 参与贡献
 
-Aura Launcher 是一个社区驱动的开源项目，欢迎任何人参与贡献代码或提出建议。CE 保留 Aura Launcher 上游的原始作者历史，并在此基础上维护独立的发布和插件功能。
+Aura Launcher 是一个社区驱动的开源项目，欢迎任何人参与贡献代码或提出建议。Aura Launcher 保留上游项目的原始作者历史，并在此基础上维护独立的发布和插件功能。
 
 你可以通过以下方式参与 Aura Launcher 的开发：
 
