@@ -41,6 +41,15 @@ public final class LicenseBoundaryTest {
     /// Expected Apache license directory.
     private static final Path PLUGIN_SYSTEM_ROOT = repositoryRoot().resolve("AuraPluginSystem");
 
+    /// Expected GPL launcher directory.
+    private static final Path LAUNCHER_ROOT = repositoryRoot().resolve("AuraLauncher");
+
+    /// Identifies the Apache header without placing the complete marker in the GPL tree's source text.
+    private static final String APACHE_MARKER = "Licensed under the Apache License, " + "Version 2.0";
+
+    /// Identifies Java sources owned by the Apache plugin-system boundary.
+    private static final String APACHE_OWNERSHIP_MARKER = "Copyright 2026 Aura Launcher " + "contributors";
+
     /// Locates the repository root from Gradle or an IDE working directory.
     private static Path repositoryRoot() {
         @Nullable Path current = Path.of("").toAbsolutePath().normalize();
@@ -66,23 +75,43 @@ public final class LicenseBoundaryTest {
         assertEquals(11_357L, Files.size(license));
         assertEquals("c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
                 HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(license))));
-        assertTrue(Files.readString(notice).contains("Copyright 2026 Aura Launcher contributors"));
+        assertTrue(Files.readString(notice).contains(APACHE_OWNERSHIP_MARKER));
         assertTrue(Files.readString(readme).contains("Apache License 2.0"));
         assertTrue(Files.readString(readme).contains("combined Aura Launcher distribution remains GPL"));
     }
 
-    /// Requires at least one plugin source and enforces its Apache-only header.
+    /// Requires the complete plugin production and test source trees to use only Apache headers.
     @Test
     public void pluginSourcesUseOnlyApacheHeaders() throws IOException {
-        Path sourceRoot = PLUGIN_SYSTEM_ROOT.resolve("src/main/java");
+        assertApacheJavaTree(PLUGIN_SYSTEM_ROOT.resolve("src/main/java"), 151L);
+        assertApacheJavaTree(PLUGIN_SYSTEM_ROOT.resolve("src/test/java"), 81L);
+    }
+
+    /// Requires the GPL launcher source trees to reject Apache-owned Java sources.
+    @Test
+    public void launcherSourcesRejectApacheHeaders() throws IOException {
+        try (Stream<Path> files = Files.walk(LAUNCHER_ROOT.resolve("src"))) {
+            @Unmodifiable List<Path> javaFiles = files
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .toList();
+            for (Path file : javaFiles) {
+                String source = Files.readString(file);
+                assertFalse(source.contains(APACHE_OWNERSHIP_MARKER), file.toString());
+            }
+        }
+    }
+
+    /// Requires an Apache Java source tree to meet its minimum size and contain only Apache headers.
+    private static void assertApacheJavaTree(Path sourceRoot, long minimumFiles) throws IOException {
         try (Stream<Path> files = Files.walk(sourceRoot)) {
             @Unmodifiable List<Path> javaFiles = files
                     .filter(path -> path.toString().endsWith(".java"))
                     .toList();
-            assertFalse(javaFiles.isEmpty());
+            assertTrue(javaFiles.size() >= minimumFiles,
+                    () -> sourceRoot + " must contain at least " + minimumFiles + " Java files");
             for (Path file : javaFiles) {
                 String source = Files.readString(file);
-                assertTrue(source.contains("Licensed under the Apache License, Version 2.0"), file.toString());
+                assertTrue(source.contains(APACHE_MARKER), file.toString());
                 assertFalse(source.contains("GNU General Public License"), file.toString());
             }
         }

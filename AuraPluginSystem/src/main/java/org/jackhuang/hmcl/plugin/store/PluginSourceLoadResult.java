@@ -1,0 +1,315 @@
+/*
+ * Copyright 2026 Aura Launcher contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.jackhuang.hmcl.plugin.store;
+
+import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/// Immutable outcome of loading one configured plugin source during an aggregate refresh.
+@NotNullByDefault
+public final class PluginSourceLoadResult {
+    /// Matches explicit hierarchical URI tokens embedded in transport error messages for sanitization.
+    private static final Pattern URI_TOKEN_PATTERN = Pattern.compile(
+            "\\b[a-z][a-z0-9+.-]*://[^\\s]+",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    /// Source configuration this outcome belongs to.
+    private final PluginSource source;
+
+    /// Explicit outcome status for this source.
+    private final Status status;
+
+    /// Elapsed source load duration in milliseconds.
+    private final long durationMillis;
+
+    /// Source-bound items published by a successfully loaded registry.
+    private final @Unmodifiable List<PluginStoreItem> items;
+
+    /// Total repository candidates or registry items unavailable from an otherwise loaded source.
+    private final int partialManifestFailureCount;
+
+    /// Validated source registry when the registry request succeeded.
+    private final @Nullable PluginStoreRegistry registry;
+
+    /// Source-scoped manager that owns the items and their source context.
+    private final @Nullable PluginStoreManager manager;
+
+    /// Full source failure retained for source details and logs.
+    private final @Nullable IOException failure;
+
+    /// Credential-safe compact failure detail suitable for rows and banners.
+    private final @Nullable String failureMessage;
+
+    /// Creates a validated source outcome after factory-level field combination checks.
+    ///
+    /// @param source source configuration
+    /// @param status source result status
+    /// @param durationMillis elapsed load duration in milliseconds
+    /// @param items source-bound loaded items
+    /// @param partialManifestFailureCount total unavailable repository count
+    /// @param registry validated source registry, when present
+    /// @param manager source-scoped item manager, when present
+    /// @param failure full source failure, when present
+    private PluginSourceLoadResult(
+            PluginSource source,
+            Status status,
+            long durationMillis,
+            @Unmodifiable List<PluginStoreItem> items,
+            int partialManifestFailureCount,
+            @Nullable PluginStoreRegistry registry,
+            @Nullable PluginStoreManager manager,
+            @Nullable IOException failure
+    ) {
+        this.source = Objects.requireNonNull(source, "source");
+        this.status = Objects.requireNonNull(status, "status");
+        if (durationMillis < 0) {
+            throw new IllegalArgumentException("durationMillis must not be negative");
+        }
+        this.durationMillis = durationMillis;
+        this.items = List.copyOf(items);
+        if (partialManifestFailureCount < 0) {
+            throw new IllegalArgumentException("partialManifestFailureCount must not be negative");
+        }
+        this.partialManifestFailureCount = partialManifestFailureCount;
+        this.registry = registry;
+        this.manager = manager;
+        this.failure = failure;
+        this.failureMessage = failure == null ? null : sanitizeFailureMessage(failure);
+    }
+
+    /// Returns an outcome for a configured source that was disabled before any request was submitted.
+    ///
+    /// @param source disabled source configuration
+    /// @return disabled source result
+    public static PluginSourceLoadResult disabled(PluginSource source) {
+        return new PluginSourceLoadResult(source, Status.DISABLED, 0, List.of(), 0, null, null, null);
+    }
+
+    /// Returns a full or partial successful load result for one validated source registry.
+    ///
+    /// @param source loaded source configuration
+    /// @param durationMillis elapsed load duration in milliseconds
+    /// @param items source-bound loaded items
+    /// @param partialManifestFailureCount repository manifests unavailable from this source
+    /// @param registry validated source registry
+    /// @param manager source-scoped manager bound to the returned items
+    /// @return successful source result
+    public static PluginSourceLoadResult success(
+            PluginSource source,
+            long durationMillis,
+            @Unmodifiable List<PluginStoreItem> items,
+            int partialManifestFailureCount,
+            PluginStoreRegistry registry,
+            PluginStoreManager manager
+    ) {
+        return success(
+                source,
+                durationMillis,
+                items,
+                partialManifestFailureCount,
+                0,
+                registry,
+                manager
+        );
+    }
+
+    /// Returns a full or partial successful load result including repositories skipped before registry publication.
+    ///
+    /// @param source loaded source configuration
+    /// @param durationMillis elapsed load duration in milliseconds
+    /// @param items source-bound loaded items
+    /// @param unresolvedItemCount published registry items whose manifests are unavailable
+    /// @param skippedRepositoryCount repositories excluded before they could become registry items
+    /// @param registry validated source registry
+    /// @param manager source-scoped manager bound to the returned items
+    /// @return successful source result
+    public static PluginSourceLoadResult success(
+            PluginSource source,
+            long durationMillis,
+            @Unmodifiable List<PluginStoreItem> items,
+            int unresolvedItemCount,
+            int skippedRepositoryCount,
+            PluginStoreRegistry registry,
+            PluginStoreManager manager
+    ) {
+        Objects.requireNonNull(registry, "registry");
+        Objects.requireNonNull(manager, "manager");
+        long actualPartialManifestFailureCount = items.stream().filter(item -> item.getManifest() == null).count();
+        if (unresolvedItemCount != actualPartialManifestFailureCount) {
+            throw new IllegalArgumentException(
+                    "unresolvedItemCount does not match items with unavailable manifests"
+            );
+        }
+        if (skippedRepositoryCount < 0) {
+            throw new IllegalArgumentException("skippedRepositoryCount must not be negative");
+        }
+        final int partialFailureCount;
+        try {
+            partialFailureCount = Math.addExact(unresolvedItemCount, skippedRepositoryCount);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("partial repository failure count overflow", exception);
+        }
+        Status status = partialFailureCount == 0 ? Status.SUCCESS : Status.PARTIAL_FAILURE;
+        return new PluginSourceLoadResult(
+                source,
+                status,
+                durationMillis,
+                items,
+                partialFailureCount,
+                registry,
+                manager,
+                null
+        );
+    }
+
+    /// Returns a result for a source whose registry could not be loaded.
+    ///
+    /// @param source failed source configuration
+    /// @param durationMillis elapsed load duration in milliseconds
+    /// @param failure full transport, parsing, or validation failure
+    /// @return failed source result
+    public static PluginSourceLoadResult failed(PluginSource source, long durationMillis, IOException failure) {
+        return new PluginSourceLoadResult(
+                source,
+                Status.FAILED,
+                durationMillis,
+                List.of(),
+                0,
+                null,
+                null,
+                Objects.requireNonNull(failure, "failure")
+        );
+    }
+
+    /// Returns the source configuration that produced this outcome.
+    ///
+    /// @return configured source
+    public PluginSource getSource() {
+        return source;
+    }
+
+    /// Returns this source's aggregate load status.
+    ///
+    /// @return source load status
+    public Status getStatus() {
+        return status;
+    }
+
+    /// Returns elapsed source loading time.
+    ///
+    /// @return elapsed load duration in milliseconds
+    public long getDurationMillis() {
+        return durationMillis;
+    }
+
+    /// Returns source-bound catalog items in the registry's order.
+    ///
+    /// @return immutable source item list
+    public @Unmodifiable List<PluginStoreItem> getItems() {
+        return items;
+    }
+
+    /// Returns the total number of unavailable repositories, including candidates skipped before publication.
+    ///
+    /// @return total partial repository failure count
+    public int getPartialManifestFailureCount() {
+        return partialManifestFailureCount;
+    }
+
+    /// Returns the validated registry when this source loaded it successfully.
+    ///
+    /// @return validated registry, or `null` for disabled and failed sources
+    public @Nullable PluginStoreRegistry getRegistry() {
+        return registry;
+    }
+
+    /// Returns the source-scoped manager when this source loaded successfully.
+    ///
+    /// @return source manager, or `null` for disabled and failed sources
+    public @Nullable PluginStoreManager getManager() {
+        return manager;
+    }
+
+    /// Returns the full source failure retained for logs and source details.
+    ///
+    /// @return full I/O failure, or `null` if the source did not fail
+    public @Nullable IOException getFailure() {
+        return failure;
+    }
+
+    /// Returns a compact failure message without URL user information, paths, queries, or fragments.
+    ///
+    /// @return credential-safe source failure message, or `null` if the source did not fail
+    public @Nullable String getFailureMessage() {
+        return failureMessage;
+    }
+
+    /// Returns whether this source supplied items that may participate in winner selection.
+    ///
+    /// @return whether the registry loaded successfully
+    public boolean isSuccessful() {
+        return status == Status.SUCCESS || status == Status.PARTIAL_FAILURE;
+    }
+
+    /// Builds a display-safe message without retaining URL user information, paths, queries, or fragments.
+    ///
+    /// @param failure full source failure
+    /// @return compact sanitized failure message
+    private static String sanitizeFailureMessage(IOException failure) {
+        String message = failure.getMessage();
+        if (message == null || message.isBlank()) {
+            return failure.getClass().getSimpleName();
+        }
+        Matcher matcher = URI_TOKEN_PATTERN.matcher(message);
+        StringBuffer sanitized = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(sanitized, Matcher.quoteReplacement(sanitizeUrl(matcher.group())));
+        }
+        matcher.appendTail(sanitized);
+        return sanitized.toString();
+    }
+
+    /// Removes a URL's user information, path, query, and fragment.
+    ///
+    /// @param url URL found in a failure message
+    /// @return URL-safe origin or generic diagnostic text
+    private static String sanitizeUrl(String url) {
+        return PluginSourceLabels.diagnosticUrl(url);
+    }
+
+    /// Enumerates every explicit outcome of one source refresh request.
+    public enum Status {
+        /// The configured source was disabled and made no request.
+        DISABLED,
+
+        /// The registry and every repository candidate loaded successfully.
+        SUCCESS,
+
+        /// The registry loaded but at least one repository candidate or manifest did not.
+        PARTIAL_FAILURE,
+
+        /// The registry could not be loaded or validated.
+        FAILED
+    }
+}
