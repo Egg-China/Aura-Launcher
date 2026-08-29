@@ -28,6 +28,11 @@ Canonical JSON recursively sorts object keys by UTF-16 code-unit order, preserve
 JSON string escapes, rejects unpaired surrogates, and accepts only integral JSON numbers in the inclusive
 range `[-9007199254740991, 9007199254740991]`.
 
+`HMCLCE-OFFICIAL-REGISTRY-V1` is an internal compatibility identifier only. No user-visible launcher text,
+Store name, source label, status message, documentation title, artifact title, or release title may contain
+`CE` or `HMCL CE`; the product name is exactly `Aura Launcher`. Existing Java namespaces and protocol IDs are
+retained only where changing them would break compatibility.
+
 The published `plugins.json` has this shape:
 
 ```json
@@ -180,6 +185,9 @@ Implementation follows test-first cycles. Required gates are:
   structurally to `registry.json`.
 - Aura performs a real public official-source load and current-platform installation plan without a community
   downgrade.
+- Branding tests and a case-sensitive source scan prove that user-visible launcher and Store text uses
+  `Aura Launcher` and does not expose `CE` or `HMCL CE`; compatibility-only namespaces and protocol IDs are
+  explicitly allowlisted.
 
 Publication is ordered so no released Aura build defaults to the official source before the signed public
 registry is available. Remote byte or CI failure stops the rollout; it does not replace the public envelope,
