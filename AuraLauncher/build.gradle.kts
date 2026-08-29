@@ -8,6 +8,9 @@ import org.jackhuang.hmcl.gradle.mod.ParseModDataTask
 import org.jackhuang.hmcl.gradle.pack.CreateDeb
 import org.jackhuang.hmcl.gradle.pack.ReleaseType
 import org.jackhuang.hmcl.gradle.utils.PropertiesUtils
+import org.gradle.api.file.Directory
+import org.gradle.api.file.FileCollection
+import org.gradle.api.plugins.quality.Checkstyle
 import groovy.json.JsonSlurper
 import java.math.BigDecimal
 import java.net.URI
@@ -66,6 +69,19 @@ val selectedVersion = if (buildVersion != null) {
 version = selectedVersion.withNextVersionSuffix()
 
 val embedResources = configurations.register("embedResources")
+
+val pluginSystemDirectory = rootProject.layout.projectDirectory.dir("AuraPluginSystem")
+
+sourceSets {
+    main {
+        java.srcDir(pluginSystemDirectory.dir("src/main/java"))
+        resources.srcDir(pluginSystemDirectory.dir("src/main/resources"))
+    }
+    test {
+        java.srcDir(pluginSystemDirectory.dir("src/test/java"))
+        resources.srcDir(pluginSystemDirectory.dir("src/test/resources"))
+    }
+}
 
 dependencies {
     implementation(project(":AuraCore"))
@@ -136,8 +152,33 @@ tasks.withType<JavaCompile> {
 }
 
 tasks.checkstyleMain {
-    // Third-party code is not checked
-    exclude("**/org/jackhuang/hmcl/ui/image/apng/**")
+    source = fileTree("src/main/java") {
+        exclude("**/org/jackhuang/hmcl/ui/image/apng/**")
+    }
+}
+tasks.checkstyleTest {
+    source = fileTree("src/test/java")
+}
+
+fun Checkstyle.configurePluginSystemCheckstyle(sourceDirectory: Directory, sourceClasspath: FileCollection) {
+    source = fileTree(sourceDirectory) { include("**/*.java") }
+    classpath = sourceClasspath
+    configFile = rootProject.file("config/checkstyle/checkstyle.xml")
+    setConfigProperties("licenseHeaderFile" to rootProject.file("config/checkstyle/license-header-apache.txt"))
+}
+
+val checkstylePluginMain = tasks.register<Checkstyle>("checkstylePluginMain") {
+    configurePluginSystemCheckstyle(
+        pluginSystemDirectory.dir("src/main/java"),
+        sourceSets.main.get().compileClasspath)
+}
+val checkstylePluginTest = tasks.register<Checkstyle>("checkstylePluginTest") {
+    configurePluginSystemCheckstyle(
+        pluginSystemDirectory.dir("src/test/java"),
+        sourceSets.test.get().compileClasspath)
+}
+tasks.named("checkstyle") {
+    dependsOn(checkstylePluginMain, checkstylePluginTest)
 }
 
 val addOpens = listOf(

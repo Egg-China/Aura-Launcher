@@ -19,6 +19,7 @@ package org.jackhuang.hmcl;
 
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -27,8 +28,11 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Verifies the repository's directory-specific license policy.
@@ -65,5 +69,22 @@ public final class LicenseBoundaryTest {
         assertTrue(Files.readString(notice).contains("Copyright 2026 Aura Launcher contributors"));
         assertTrue(Files.readString(readme).contains("Apache License 2.0"));
         assertTrue(Files.readString(readme).contains("combined Aura Launcher distribution remains GPL"));
+    }
+
+    /// Requires at least one plugin source and enforces its Apache-only header.
+    @Test
+    public void pluginSourcesUseOnlyApacheHeaders() throws IOException {
+        Path sourceRoot = PLUGIN_SYSTEM_ROOT.resolve("src/main/java");
+        try (Stream<Path> files = Files.walk(sourceRoot)) {
+            @Unmodifiable List<Path> javaFiles = files
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .toList();
+            assertFalse(javaFiles.isEmpty());
+            for (Path file : javaFiles) {
+                String source = Files.readString(file);
+                assertTrue(source.contains("Licensed under the Apache License, Version 2.0"), file.toString());
+                assertFalse(source.contains("GNU General Public License"), file.toString());
+            }
+        }
     }
 }
