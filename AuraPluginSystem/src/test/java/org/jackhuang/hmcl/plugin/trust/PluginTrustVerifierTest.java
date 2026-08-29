@@ -44,6 +44,9 @@ public final class PluginTrustVerifierTest {
     /// Stable validation instant used by all certificate fixtures.
     private static final Instant NOW = Instant.parse("2026-08-14T08:00:00Z");
 
+    /// Stable validation clock used by purpose-scoped root fixtures.
+    private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
+
     /// Developer CA signing pair.
     private KeyPair developerCa;
 
@@ -191,6 +194,33 @@ public final class PluginTrustVerifierTest {
 
         assertEquals(PluginTrustLevel.OFFICIAL, result.trust().level());
         assertEquals(registry, result.signed());
+    }
+
+    /// Limits an official-store root to official registry signatures and exposes that capability explicitly.
+    @Test
+    public void limitsOfficialOnlyRootToOfficialRegistry() throws Exception {
+        PluginTrustVerifier official = PluginTrustVerifier.fromRoot(
+                officialOnlyRoot(officialRepository), CLOCK, Set.of(), Set.of());
+
+        assertTrue(official.supportsOfficialRegistry());
+        assertFalse(developmentVerifier().supportsOfficialRegistry());
+
+        JsonObject registry = new JsonObject();
+        registry.addProperty("schemaVersion", 1);
+        registry.addProperty("name", "Aura Launcher Plugin Store");
+        registry.add("plugins", new JsonArray());
+        assertEquals(PluginTrustLevel.OFFICIAL, official.verifyOfficialRegistry(envelope(
+                PluginTrustVerifier.OFFICIAL_REGISTRY_DOMAIN,
+                registry,
+                officialRepository.getPrivate(),
+                keyId(officialRepository),
+                null
+        )).trust().level());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> official.verifyRepositoryAttestation(
+                        repositoryAttestation(officialRepository, "approved", "verification-17")
+                ));
     }
 
     /// Grants certification only when the weekly repository proof, release proof, and fresh status snapshot agree.
@@ -506,6 +536,42 @@ public final class PluginTrustVerifierTest {
         root.add("signed", signed);
         root.add("signatures", new JsonArray());
         return root;
+    }
+
+    /// Creates a production-shaped root that authorizes only the official Store registry role.
+    private static JsonObject officialOnlyRoot(KeyPair officialRepository) throws Exception {
+        JsonObject signed = new JsonObject();
+        signed.addProperty("_type", "root");
+        signed.addProperty("schemaVersion", 1);
+        signed.addProperty("version", 1);
+        signed.addProperty("expires", "2036-01-01T00:00:00Z");
+        signed.addProperty("statusUrl", "");
+        JsonObject keys = new JsonObject();
+        keys.add(keyId(officialRepository), key(officialRepository));
+        signed.add("keys", keys);
+        JsonObject roles = new JsonObject();
+        roles.add("official-repository", role(keyId(officialRepository)));
+        signed.add("roles", roles);
+        JsonObject root = new JsonObject();
+        root.add("signed", signed);
+        root.add("signatures", new JsonArray());
+        return root;
+    }
+
+    /// Creates the checked-in development-root profile without any online signing roles.
+    private static PluginTrustVerifier developmentVerifier() {
+        JsonObject signed = new JsonObject();
+        signed.addProperty("_type", "root");
+        signed.addProperty("schemaVersion", 1);
+        signed.addProperty("version", 1);
+        signed.addProperty("expires", "2036-01-01T00:00:00Z");
+        signed.addProperty("statusUrl", "");
+        signed.add("keys", new JsonObject());
+        signed.add("roles", new JsonObject());
+        JsonObject root = new JsonObject();
+        root.add("signed", signed);
+        root.add("signatures", new JsonArray());
+        return PluginTrustVerifier.fromRoot(root, CLOCK, Set.of(), Set.of());
     }
 
     /// Stable first artifact checksum.

@@ -26,6 +26,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /// Verifies that every Aura build contains a syntactically valid plugin trust anchor resource.
@@ -44,6 +45,7 @@ public final class PluginTrustRootResourceTest {
                 PluginTrustLevel.COMMUNITY,
                 verifier.verifyManifest(manifest, "dev.example.plugin", "github.com/example/plugin").trust().level()
         );
+        assertFalse(verifier.supportsOfficialRegistry());
     }
 
     /// Rejects online roles whose otherwise different key sets partially overlap.

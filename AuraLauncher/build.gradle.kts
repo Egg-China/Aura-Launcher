@@ -21,6 +21,7 @@ import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
 import java.time.Instant
 import java.util.Base64
 import java.util.HexFormat
@@ -233,7 +234,7 @@ fun exactPluginTrustRootInteger(value: Any?, field: String): Int {
     }
 }
 
-fun validatePluginTrustRoot(contents: String, requireOnlineRoles: Boolean) {
+fun validatePluginTrustRoot(contents: String, requireOfficialRepository: Boolean) {
     val document = try {
         JsonSlurper().parseText(contents) as? Map<*, *>
     } catch (exception: RuntimeException) {
@@ -255,24 +256,10 @@ fun validatePluginTrustRoot(contents: String, requireOnlineRoles: Boolean) {
     if (!expires.isAfter(Instant.now())) {
         throw GradleException("Plugin trust root has expired")
     }
-    if (!requireOnlineRoles) return
-
-    val statusUrl = signed["statusUrl"] as? String
-        ?: throw GradleException("Production plugin trust root is missing statusUrl")
-    val statusUri = try {
-        URI(statusUrl)
-    } catch (exception: RuntimeException) {
-        throw GradleException("Production plugin trust root statusUrl is invalid", exception)
-    }
-    if (!statusUri.scheme.equals("https", ignoreCase = true) || statusUri.host.isNullOrBlank()
-        || statusUri.userInfo != null || statusUri.fragment != null) {
-        throw GradleException("Production plugin trust root statusUrl must be an absolute credential-free HTTPS URL")
-    }
-
     val keys = signed["keys"] as? Map<*, *>
-        ?: throw GradleException("Production plugin trust root is missing keys")
-    if (keys.isEmpty() || keys.keys.any { it !is String || !it.matches(Regex("ed25519:[0-9a-f]{64}")) }) {
-        throw GradleException("Production plugin trust root must declare named public keys")
+        ?: throw GradleException("Plugin trust root is missing keys")
+    if (keys.keys.any { it !is String || !it.matches(Regex("ed25519:[0-9a-f]{64}")) }) {
+        throw GradleException("Plugin trust root must use named Ed25519 public keys")
     }
     keys.forEach { (keyId, value) ->
         val declaration = value as? Map<*, *>
@@ -284,33 +271,79 @@ fun validatePluginTrustRoot(contents: String, requireOnlineRoles: Boolean) {
         }
         val computedKeyId = try {
             val encoded = Base64.getDecoder().decode(publicKey)
+            KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(encoded))
             "ed25519:" + HexFormat.of().formatHex(digest("SHA-256", encoded))
-        } catch (exception: IllegalArgumentException) {
-            throw GradleException("Plugin trust root key $keyId is not valid Base64", exception)
+        } catch (exception: Exception) {
+            throw GradleException("Plugin trust root key $keyId is not a valid Ed25519 public key", exception)
         }
         if (computedKeyId != keyId) {
             throw GradleException("Plugin trust root key ID does not match its public key: $keyId")
         }
     }
     val roles = signed["roles"] as? Map<*, *>
-        ?: throw GradleException("Production plugin trust root is missing roles")
+        ?: throw GradleException("Plugin trust root is missing roles")
+    val onlineRoleNames = setOf(
+        "official-repository",
+        "repository-attestor",
+        "artifact-attestor",
+        "trust-status",
+    )
+    val parsedRoles = mutableMapOf<String, Set<String>>()
     val assignedKeyIds = mutableSetOf<String>()
-    listOf("official-repository", "repository-attestor", "artifact-attestor", "trust-status").forEach { roleName ->
-        val role = roles[roleName] as? Map<*, *>
-            ?: throw GradleException("Production plugin trust root is missing role: $roleName")
+    roles.forEach { (roleNameValue, roleValue) ->
+        val roleName = roleNameValue as? String
+            ?: throw GradleException("Plugin trust root contains a non-string role name")
+        if (roleName.isBlank()) {
+            throw GradleException("Plugin trust root contains a blank role name")
+        }
+        val role = roleValue as? Map<*, *>
+            ?: throw GradleException("Plugin trust root role $roleName must be an object")
         val keyIds = (role["keyIds"] as? List<*>)?.map {
             it as? String ?: throw GradleException("Plugin trust role $roleName has a non-string key ID")
         } ?: throw GradleException("Plugin trust role $roleName is missing keyIds")
         val distinctKeyIds = keyIds.toSet()
         val threshold = exactPluginTrustRootInteger(role["threshold"], "role $roleName threshold")
         if (keyIds.isEmpty() || distinctKeyIds.size != keyIds.size
-            || threshold != 1 || !keys.keys.containsAll(distinctKeyIds)) {
+            || threshold < 1 || threshold > keyIds.size || !keys.keys.containsAll(distinctKeyIds)) {
             throw GradleException("Plugin trust role $roleName has an invalid threshold or key reference")
         }
-        if (distinctKeyIds.any { it in assignedKeyIds }) {
-            throw GradleException("Production plugin trust roles must not reuse signing keys")
+        if (roleName in onlineRoleNames) {
+            if (threshold != 1) {
+                throw GradleException("Online plugin trust role $roleName must use threshold one")
+            }
+            if (distinctKeyIds.any { it in assignedKeyIds }) {
+                throw GradleException("Online plugin trust roles must not reuse signing keys")
+            }
+            assignedKeyIds.addAll(distinctKeyIds)
         }
-        assignedKeyIds.addAll(distinctKeyIds)
+        parsedRoles[roleName] = distinctKeyIds
+    }
+
+    if (requireOfficialRepository && "official-repository" !in parsedRoles) {
+        throw GradleException("Configured plugin trust root is missing role: official-repository")
+    }
+    val certificationRoleNames = setOf("repository-attestor", "artifact-attestor", "trust-status")
+    val certificationRoleCount = certificationRoleNames.count(parsedRoles::containsKey)
+    if (certificationRoleCount != 0 && certificationRoleCount != certificationRoleNames.size) {
+        throw GradleException("Plugin trust certification roles must all be present or all be absent")
+    }
+
+    val statusUrl = signed["statusUrl"] as? String
+        ?: throw GradleException("Plugin trust root is missing statusUrl")
+    if (certificationRoleCount == 0) {
+        if (statusUrl.isNotBlank()) {
+            throw GradleException("Plugin trust root statusUrl must be blank without certification roles")
+        }
+    } else {
+        val statusUri = try {
+            URI(statusUrl)
+        } catch (exception: RuntimeException) {
+            throw GradleException("Plugin trust root statusUrl is invalid", exception)
+        }
+        if (!statusUri.scheme.equals("https", ignoreCase = true) || statusUri.host.isNullOrBlank()
+            || statusUri.userInfo != null || statusUri.fragment != null) {
+            throw GradleException("Plugin trust root statusUrl must be an absolute credential-free HTTPS URL")
+        }
     }
 }
 
@@ -324,7 +357,7 @@ val createPluginTrustRoot = tasks.register("createPluginTrustRoot") {
     doLast {
         val configured = configuredRoot.orNull?.takeIf(String::isNotBlank)
         val contents = configured ?: developmentRoot.asFile.readText(Charsets.UTF_8)
-        validatePluginTrustRoot(contents, requireOnlineRoles = configured != null)
+        validatePluginTrustRoot(contents, requireOfficialRepository = configured != null)
         val target = pluginTrustRootFile.get().asFile
         target.parentFile.mkdirs()
         target.writeText(contents.trim() + "\n", Charsets.UTF_8)

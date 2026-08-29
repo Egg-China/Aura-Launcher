@@ -70,6 +70,11 @@ final class PluginTrustRoot {
         return statusUrl;
     }
 
+    /// Returns whether this root contains a fully parsed role.
+    boolean hasRole(String roleName) {
+        return roles.containsKey(roleName);
+    }
+
     /// Verifies one signed payload against the selected role threshold.
     ///
     /// @return one verified key ID, or `null` when the threshold is not met

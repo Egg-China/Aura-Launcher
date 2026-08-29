@@ -190,6 +190,11 @@ public final class PluginTrustVerifier {
         return root.getStatusUrl();
     }
 
+    /// Returns whether the embedded root can authenticate the official Store registry.
+    public boolean supportsOfficialRegistry() {
+        return root.hasRole(OFFICIAL_REPOSITORY_ROLE);
+    }
+
     /// Verifies a registry envelope using only the official repository role.
     public PluginDocumentVerification verifyOfficialRegistry(JsonObject document) {
         try {
