@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Egg-China/Aura-Launcher/blob/main/packaging/harmonyos/evidence.schema.json",
+  "title": "Aura Launcher HarmonyOS packaging evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sourceCommit",
+    "sdkVersion",
+    "launcherVersion",
+    "hnpVersion",
+    "versionCode",
+    "target",
+    "signingState",
+    "tools",
+    "artifacts"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sdkVersion": {
+      "type": "string",
+      "enum": ["6.0.1(21)"]
+    },
+    "launcherVersion": {
+      "type": "string",
+      "enum": ["27.1-next"]
+    },
+    "hnpVersion": {
+      "type": "string",
+      "enum": ["27.1.next"]
+    },
+    "versionCode": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target": {
+      "type": "string",
+      "enum": ["harmonyos-arm64"]
+    },
+    "signingState": {
+      "type": "string",
+      "enum": ["unsigned", "debug-signed", "release-signed"]
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hnpcli", "hvigor"],
+      "properties": {
+        "hnpcli": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "hvigor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "size", "sha256"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^Aura-Launcher-27\\.1-next-harmonyos-arm64(?:-unsigned|-debug-signed)?\\.hap$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}
