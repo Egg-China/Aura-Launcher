@@ -1,54 +1,133 @@
-# Aura Launcher
+<div align="center">
+  <img src="docs/assets/aura-launcher.png" alt="Aura Launcher" width="180">
 
-Aura Launcher is Egg-China's future Minecraft launcher product line. It is currently a private,
-pre-release project built from the HMCL CE Next codebase while its launcher architecture is being
-prepared for later Java and Rust development.
+  <h1>Aura Launcher</h1>
 
-This repository is not a stable release channel. Every build identifies itself with a version
-ending in `-next`, and packaged launcher files use the name `Aura-Launcher-<version>.jar`.
-Automatic updates and built-in Aura Store discovery remain disabled until private release services
-are available. User-configured plugin sources continue to work.
+  <p><strong>面向下一代插件生态的跨平台 Minecraft 启动器</strong><br>
+  <em>A cross-platform Minecraft launcher built for the next generation of plugins</em></p>
 
-## Current Compatibility
+  <p>
+    <a href="https://github.com/Egg-China/Aura-Launcher/actions/workflows/gradle.yml"><img src="https://github.com/Egg-China/Aura-Launcher/actions/workflows/gradle.yml/badge.svg?branch=main" alt="Java CI"></a>
+    <img src="https://img.shields.io/badge/Java-17%2B-ef6c00?logo=openjdk&logoColor=white" alt="Java 17 or later">
+    <img src="https://img.shields.io/badge/channel-Next-7656d6" alt="Next channel">
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-2f855a" alt="GPLv3 license"></a>
+  </p>
 
-- Java 17 or later is required to build and run the launcher.
-- Aura plugin packages (`.npl`) must use plugin manifest schema v5.
-- Store index document schema versions are independent from plugin manifest schema versions.
-- Aura keeps its live settings and data separate from HMCL CE.
-- A first-run or manual migration can copy an allowlisted subset of HMCL CE settings without
-  importing plugins, trust decisions, runtime-host bindings, caches, logs, or quarantine state.
+  <p><a href="#简体中文">简体中文</a> · <a href="#english">English</a></p>
+</div>
 
-## Build
+## 简体中文
 
-On Windows:
+### 关于 Aura Launcher
+
+Aura Launcher 是由 Egg-China 开发的跨平台 Minecraft 启动器。它保留成熟的游戏安装、实例管理和启动能力，并以独立的插件架构、安全边界与发布体系面向未来持续演进。
+
+> [!IMPORTANT]
+> Aura Launcher 当前处于 **Next 开发阶段**，尚未提供稳定版本。此仓库产生的构建版本均以 `-next` 结尾，发布文件统一命名为 `Aura-Launcher-<version>`。
+
+### 特性
+
+- **跨平台运行**：面向 Windows、Linux、macOS 与 FreeBSD，并覆盖多种 CPU 架构；详见[平台支持表](docs/PLATFORM_zh.md)。
+- **完整实例管理**：安装、组织和启动多个 Minecraft 实例，管理游戏版本与模组加载器。
+- **新一代插件系统**：Aura `.npl` 插件使用 manifest schema v5，并接受权限、平台、Runtime 与 ABI 兼容性检查。
+- **清晰的安全边界**：Aura Launcher 使用独立数据目录；迁移仅复制明确允许的设置，不导入插件或插件安全状态。
+
+### 获取与构建
+
+当前没有稳定版本可供下载。拥有仓库访问权限的测试者可从 [GitHub Actions](https://github.com/Egg-China/Aura-Launcher/actions/workflows/gradle.yml?query=branch%3Amain) 获取最新 Next 构建。
+
+从源代码构建需要 **JDK 17 或更高版本**。
 
 ```powershell
+# Windows
 .\gradlew.bat :AuraLauncher:build --no-daemon
 ```
 
-On Linux or macOS:
-
 ```bash
+# Linux / macOS
 ./gradlew :AuraLauncher:build --no-daemon
 ```
 
-Artifacts are written to `AuraLauncher/build/libs/`. Run the development launcher with:
+构建产物位于 `AuraLauncher/build/libs/`。在开发环境中运行启动器：
 
 ```powershell
 .\gradlew.bat :AuraLauncher:run --no-daemon
 ```
 
-## Source And License
+### 插件与开发文档
 
-Aura Launcher was imported as a source-only snapshot from
-[`HMCL-Community/HMCL-CE`](https://github.com/HMCL-Community/HMCL-CE), which itself is based on
-[`HMCL-dev/HMCL`](https://github.com/HMCL-dev/HMCL). The imported source commit is
-`5d8b16fda5012d5cc99067582d7d4f34d3f30d7d`.
+- [插件系统](AuraPluginSystem/docs/PLUGIN_SYSTEM.md)：插件清单、权限与来源管理
+- [插件契约](AuraPluginSystem/docs/PLUGIN_CONTRACT.md)：启动器与插件之间的行为保证
+- [Next 插件架构](AuraPluginSystem/docs/NEXT_PLUGIN_ARCHITECTURE.md)：schema v5 与 Runtime 架构
+- [贡献指南](docs/Contributing_zh.md)：开发环境、构建流程与调试选项
 
-The original Git history was intentionally not copied. Upstream copyright notices, third-party
-notices, compatibility package names, and GPL terms are retained. See
-[`docs/MIGRATION_PROVENANCE.md`](docs/MIGRATION_PROVENANCE.md), [`LICENSE`](LICENSE), and
-[`LICENSE.additional`](LICENSE.additional) for details.
+发现问题或有功能建议，请[提交 Issue](https://github.com/Egg-China/Aura-Launcher/issues/new/choose)；代码贡献可通过 [Pull Request](https://github.com/Egg-China/Aura-Launcher/compare) 提交。
 
-Aura Launcher is free software licensed under GNU General Public License version 3 with the retained
-additional terms described in the repository license files.
+### 来源
+
+Aura Launcher 基于既有开源代码持续开发，同时保持独立的产品身份、数据目录、发布渠道和插件生态。来源记录、保留声明与兼容性边界见[迁移来源说明](docs/MIGRATION_PROVENANCE.md)。
+
+### 许可证
+
+- [`AuraPluginSystem/`](AuraPluginSystem/) 使用 [Apache License 2.0](AuraPluginSystem/LICENSE)。
+- 其他所有目录使用根目录的 [GNU General Public License v3.0](LICENSE)，除非文件另有说明。
+
+完整 Aura Launcher 发行物包含 GPL 覆盖的代码，因此整体仍须遵守 GPLv3。
+
+## English
+
+### About Aura Launcher
+
+Aura Launcher is a cross-platform Minecraft launcher developed by Egg-China. It retains mature game installation, instance management, and launch capabilities while evolving through an independent plugin architecture, security model, and release pipeline.
+
+> [!IMPORTANT]
+> Aura Launcher is currently on the **Next development line** and does not yet provide a stable release. Every build from this repository ends in `-next`, and distributable files use the name `Aura-Launcher-<version>`.
+
+### Features
+
+- **Cross-platform support**: Targets Windows, Linux, macOS, and FreeBSD across multiple CPU architectures. See the [platform support matrix](docs/PLATFORM.md).
+- **Complete instance management**: Install, organize, and launch multiple Minecraft instances while managing game versions and mod loaders.
+- **Next-generation plugin system**: Aura `.npl` plugins use manifest schema v5 and are checked for permission, platform, Runtime, and ABI compatibility.
+- **Explicit security boundaries**: Aura Launcher uses its own data directory. Migration copies only allowlisted settings and never imports plugins or plugin security state.
+
+### Get and build
+
+No stable download is available yet. Testers with repository access can obtain current Next builds from [GitHub Actions](https://github.com/Egg-China/Aura-Launcher/actions/workflows/gradle.yml?query=branch%3Amain).
+
+Building from source requires **JDK 17 or later**.
+
+```powershell
+# Windows
+.\gradlew.bat :AuraLauncher:build --no-daemon
+```
+
+```bash
+# Linux / macOS
+./gradlew :AuraLauncher:build --no-daemon
+```
+
+Build artifacts are written to `AuraLauncher/build/libs/`. Run the launcher in a development environment with:
+
+```powershell
+.\gradlew.bat :AuraLauncher:run --no-daemon
+```
+
+### Plugin and development documentation
+
+- [Plugin system](AuraPluginSystem/docs/PLUGIN_SYSTEM.md): manifests, permissions, and source management
+- [Plugin contract](AuraPluginSystem/docs/PLUGIN_CONTRACT.md): behavioral guarantees between the launcher and plugins
+- [Next plugin architecture](AuraPluginSystem/docs/NEXT_PLUGIN_ARCHITECTURE.md): schema v5 and Runtime architecture
+- [Contributing guide](docs/Contributing.md): development setup, build workflow, and debugging options
+
+Please [open an issue](https://github.com/Egg-China/Aura-Launcher/issues/new/choose) for bugs and feature requests. Code contributions are welcome through [pull requests](https://github.com/Egg-China/Aura-Launcher/compare).
+
+### Provenance
+
+Aura Launcher continues from established open-source code while maintaining its own product identity, data directory, release channel, and plugin ecosystem. See the [migration provenance](docs/MIGRATION_PROVENANCE.md) for source records, retained notices, and compatibility boundaries.
+
+### License
+
+- [`AuraPluginSystem/`](AuraPluginSystem/) uses the [Apache License 2.0](AuraPluginSystem/LICENSE).
+- All other directories use the root [GNU General Public License v3.0](LICENSE), unless a file states otherwise.
+
+The complete Aura Launcher distribution contains GPL-covered code and therefore remains subject to GPLv3.

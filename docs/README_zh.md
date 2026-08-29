@@ -37,7 +37,7 @@ Aura Launcher 有着强大的跨平台能力。它不仅支持 Windows、Linux�
 Aura Launcher 目前是私有预发布项目，尚无公开稳定版本。所有构建的版本号均以 `-next` 结尾。
 自动更新和内置插件商店会保持禁用，直到 Aura 的发布服务正式可用。
 
-插件系统的清单格式、权限模型和来源管理规则见[插件系统文档](./PLUGIN_SYSTEM.md)。
+插件系统的清单格式、权限模型和来源管理规则见[插件系统文档](../AuraPluginSystem/docs/PLUGIN_SYSTEM.md)。
 
 ## 参与贡献
 

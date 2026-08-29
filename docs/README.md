@@ -40,7 +40,7 @@ Aura Launcher is currently private and has no stable public release. Builds from
 always use a version ending in `-next`. Automatic updates and built-in Store discovery are disabled
 until Aura release services are available.
 
-See the [plugin system documentation](./PLUGIN_SYSTEM.md) for manifest format, permissions, and source management, and the [plugin contract](./PLUGIN_CONTRACT.md) for the formal launcher-plugin behavioral guarantees.
+See the [plugin system documentation](../AuraPluginSystem/docs/PLUGIN_SYSTEM.md) for manifest format, permissions, and source management, and the [plugin contract](../AuraPluginSystem/docs/PLUGIN_CONTRACT.md) for the formal launcher-plugin behavioral guarantees.
 
 ## Contributing
 
