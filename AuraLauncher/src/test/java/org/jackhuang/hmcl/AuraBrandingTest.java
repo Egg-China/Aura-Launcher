@@ -22,9 +22,18 @@ import org.jackhuang.hmcl.util.platform.OperatingSystem;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /// Verifies the launcher exposes its Aura distribution identity.
 @NotNullByDefault
@@ -54,7 +63,22 @@ public final class AuraBrandingTest {
         assertEquals("https://github.com/Egg-China/Aura-Launcher/issues/new/choose", Metadata.CONTACT_URL);
         assertEquals("https://raw.githubusercontent.com/Egg-China/Aura-Launcher-Plugin-Store/main/plugins.json",
                 PluginStoreManager.DEFAULT_REGISTRY_URL);
-        assertEquals(false, PluginStoreManager.DEFAULT_REGISTRY_ENABLED);
+    }
+
+    /// Ensures launcher-owned translations never expose a predecessor's CE branding as the current product.
+    @Test
+    public void hidesLegacyCeBrandingFromTranslationValues() throws IOException, URISyntaxException {
+        Path languageDirectory = Objects.requireNonNull(Path.of(Objects.requireNonNull(
+                AuraBrandingTest.class.getResource("/assets/lang/I18N.properties")
+        ).toURI()).getParent());
+        try (DirectoryStream<Path> languageFiles = Files.newDirectoryStream(
+                languageDirectory,
+                "I18N*.properties"
+        )) {
+            for (Path source : languageFiles) {
+                assertNoLegacyCeBranding(source);
+            }
+        }
     }
 
     /// Resolves Aura live storage only from Aura-specific inputs and Aura defaults.
@@ -90,5 +114,22 @@ public final class AuraBrandingTest {
         ));
         assertEquals(explicitLocal, Metadata.resolveLegacyHmclCeLocalHome(explicitLocal.toString(), root));
         assertEquals(root.resolve(".hmcl"), Metadata.resolveLegacyHmclCeLocalHome(null, root));
+    }
+
+    /// Scans every localized value in one launcher-owned translation file.
+    ///
+    /// @param source translation property file
+    /// @throws IOException if the translation cannot be read
+    private static void assertNoLegacyCeBranding(Path source) throws IOException {
+        Properties translations = new Properties();
+        try (var input = Files.newBufferedReader(source, StandardCharsets.UTF_8)) {
+            translations.load(input);
+        }
+        for (String key : translations.stringPropertyNames()) {
+            String value = Objects.requireNonNull(translations.getProperty(key));
+            String normalized = value.toLowerCase(Locale.ROOT);
+            assertFalse(normalized.contains("hmcl ce"), source + ":" + key + " exposes HMCL CE");
+            assertFalse(normalized.contains("pcl ce"), source + ":" + key + " exposes PCL CE");
+        }
     }
 }

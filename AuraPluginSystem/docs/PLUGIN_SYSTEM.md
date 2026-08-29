@@ -49,8 +49,8 @@ Runtime Provider 自身是使用内置 Java 运行时加载的插件，必须声
 `native-code` 权限。缺少匹配 Provider、ABI、执行模式、Bridge ABI、功能或平台工件时，
 插件会在安装或启动兼容性检查中被拒绝。
 
-Aura 仓库当前不包含可分发的官方外部 Runtime Host；这些 Host 必须作为独立、可选插件
-安装，不能成为启动器本体的强制依赖。
+官方 Rust、.NET、QuickJS 和 Wasm Runtime Host 已作为独立的 beta 预发布插件提供，
+不会成为启动器本体的强制依赖。Python Runtime Host 尚未提供。
 
 ## 理解生命周期
 
@@ -84,8 +84,12 @@ JVM 插件的基本顺序为：
 
 ## 配置插件来源
 
-Aura 私有预发布仓库不启用内置官方 Store URL。用户可以添加自定义 registry；保留的
-`github-topic-hmclce` 源 ID 与 `hmclce` Topic 仅用于兼容既有插件生态和本地设置。
+嵌入经审核、含 `official-repository` 角色信任根的 Aura 构建会启用内置官方 Store。
+开发信任根不含该角色，因此保持禁用。官方索引必须是通过 Ed25519 验证的签名 envelope；
+普通 JSON、无效签名、未知密钥或网络错误都会关闭本次加载，不会降级成社区来源。
+
+用户仍可添加自定义 registry；保留的 `github-topic-hmclce` 源 ID 与 `hmclce` Topic
+仅用于兼容既有插件生态和本地设置。
 
 下载前，启动器验证仓库清单、插件 ID、版本、下载地址、SHA-256、依赖、权限、运行时和
 平台要求。包含 Mixin 或高权限能力的包还会显示额外确认。

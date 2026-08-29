@@ -36,9 +36,10 @@ For systems and CPU architectures supported by Aura Launcher, please refer to [t
 
 ## Pre-release Status
 
-Aura Launcher is currently private and has no stable public release. Builds from this repository
-always use a version ending in `-next`. Automatic updates and built-in Store discovery are disabled
-until Aura release services are available.
+Aura Launcher is currently a public pre-release line and has no stable release. Builds from this
+repository always use a version ending in `-next`. Automatic updates remain disabled. Builds that
+embed the reviewed official Store trust root enable built-in Store discovery; development-root
+builds keep it disabled.
 
 See the [plugin system documentation](../AuraPluginSystem/docs/PLUGIN_SYSTEM.md) for manifest format, permissions, and source management, and the [plugin contract](../AuraPluginSystem/docs/PLUGIN_CONTRACT.md) for the formal launcher-plugin behavioral guarantees.
 

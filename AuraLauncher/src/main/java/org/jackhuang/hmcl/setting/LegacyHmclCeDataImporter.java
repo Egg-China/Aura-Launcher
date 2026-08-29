@@ -98,7 +98,7 @@ public final class LegacyHmclCeDataImporter {
         Path normalizedAuraLocal = normalize(auraLocalHome);
         if (normalizedLegacyUser.equals(normalizedAuraUser)
                 || normalizedLegacyLocal.equals(normalizedAuraLocal)) {
-            return LegacyHmclCeImportResult.failure("HMCL CE source homes must be separate from Aura homes");
+            return LegacyHmclCeImportResult.failure("Legacy launcher source homes must be separate from Aura homes");
         }
 
         Path receipt = receiptPath(normalizedAuraLocal);
@@ -286,7 +286,7 @@ public final class LegacyHmclCeDataImporter {
             try {
                 deleteVerifiedStaging(stagingRoot, stagingParent);
             } catch (IOException cleanupFailure) {
-                LOG.warning("Failed to clean HMCL CE import staging directory " + stagingRoot, cleanupFailure);
+                LOG.warning("Failed to clean legacy launcher import staging directory " + stagingRoot, cleanupFailure);
             }
         }
     }

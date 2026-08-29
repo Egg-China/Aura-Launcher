@@ -45,7 +45,6 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -77,17 +76,18 @@ import static org.jackhuang.hmcl.util.logging.Logger.LOG;
 /// Resolves validated remote registries, checks compatibility, and downloads verified plugin packages atomically.
 @NotNullByDefault
 public final class PluginStoreManager {
-    /// Reserved Aura Launcher plugin registry endpoint, disabled until a public Store is published.
+    /// Reserved Aura Launcher plugin registry endpoint.
     public static final String DEFAULT_REGISTRY_URL =
             System.getProperty("aura.plugin_store.registry",
                     "https://raw.githubusercontent.com/Egg-China/Aura-Launcher-Plugin-Store/main/plugins.json");
 
-    /// Whether the optional default registry should be loaded automatically.
-    public static final boolean DEFAULT_REGISTRY_ENABLED = Boolean.parseBoolean(
-            System.getProperty(
-                    "aura.plugin_store.enabled",
-                    "false"
-            )
+    /// Validated trust verifier shared by default Store clients and enablement policy.
+    private static final PluginTrustVerifier DEFAULT_TRUST_VERIFIER = loadDefaultTrustVerifier();
+
+    /// Whether the verified default registry should be loaded automatically.
+    public static final boolean DEFAULT_REGISTRY_ENABLED = defaultRegistryEnabled(
+            System.getProperty("aura.plugin_store.enabled"),
+            DEFAULT_TRUST_VERIFIER
     );
 
     /// GitHub repository search endpoint used by the disabled Aura Topic source.
@@ -120,27 +120,6 @@ public final class PluginStoreManager {
 
     /// Extracts the first Java feature number from registry text.
     private static final Pattern JAVA_VERSION_PATTERN = Pattern.compile("(\\d+)");
-
-    /// Detects whether this build contains a production-capable official repository role.
-    private static boolean hasEmbeddedOfficialRepositoryRole() {
-        try (InputStream input = PluginStoreManager.class.getResourceAsStream(
-                "/assets/aura-plugin-root.json"
-        )) {
-            if (input == null) {
-                return false;
-            }
-            JsonElement document = JsonParser.parseReader(new InputStreamReader(input, StandardCharsets.UTF_8));
-            return document.isJsonObject()
-                    && document.getAsJsonObject().has("signed")
-                    && document.getAsJsonObject().get("signed").isJsonObject()
-                    && document.getAsJsonObject().getAsJsonObject("signed").has("roles")
-                    && document.getAsJsonObject().getAsJsonObject("signed").get("roles").isJsonObject()
-                    && document.getAsJsonObject().getAsJsonObject("signed")
-                    .getAsJsonObject("roles").has("official-repository");
-        } catch (IOException | RuntimeException exception) {
-            return false;
-        }
-    }
 
     /// Atomically published source, registry, and source-owned request caches.
     private volatile @Nullable SourceContext context;
@@ -223,24 +202,24 @@ public final class PluginStoreManager {
 
     /// Creates an unloaded source-scoped store client.
     public PluginStoreManager() {
-        this(loadDefaultTrustVerifier(), null, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator());
+        this(DEFAULT_TRUST_VERIFIER, null, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator());
     }
 
     /// Creates an unloaded client with an explicit GitHub raw-content base for package-local tests.
     ///
     /// @param githubRawBaseUrl raw-content base used for Topic repository manifests
     PluginStoreManager(String githubRawBaseUrl) {
-        this(loadDefaultTrustVerifier(), null, githubRawBaseUrl, createDefaultCompatibilityEvaluator());
+        this(DEFAULT_TRUST_VERIFIER, null, githubRawBaseUrl, createDefaultCompatibilityEvaluator());
     }
 
     /// Creates an unloaded client with a deterministic compatibility evaluator for package-local tests.
     ///
     /// @param compatibilityEvaluator evaluator with the desired runtime registry and host platform
     PluginStoreManager(PluginCompatibilityEvaluator compatibilityEvaluator) {
-        this(loadDefaultTrustVerifier(), null, GITHUB_RAW_BASE_URL, compatibilityEvaluator);
+        this(DEFAULT_TRUST_VERIFIER, null, GITHUB_RAW_BASE_URL, compatibilityEvaluator);
     }
 
-    /// Loads the embedded plugin trust root for a new store manager.
+    /// Loads the embedded plugin trust root for process-wide default Store behavior.
     ///
     /// @return configured trust verifier
     /// @throws IllegalStateException if the embedded trust root cannot be loaded
@@ -250,6 +229,20 @@ public final class PluginStoreManager {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to load Aura Launcher plugin trust root", exception);
         }
+    }
+
+    /// Resolves automatic official-source enablement from a validated root unless explicitly overridden.
+    ///
+    /// @param override explicit system-property value, or `null` to derive the default from trust capabilities
+    /// @param verifier validated trust verifier embedded in this build
+    /// @return whether the built-in official registry should be attempted
+    static boolean defaultRegistryEnabled(
+            @Nullable String override,
+            PluginTrustVerifier verifier
+    ) {
+        return override == null
+                ? verifier.supportsOfficialRegistry()
+                : Boolean.parseBoolean(override);
     }
 
     /// Returns the production evaluator backed by the process-wide runtime provider registry.

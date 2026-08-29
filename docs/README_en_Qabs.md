@@ -23,4 +23,4 @@
 
 ˙[sǝsɐǝlǝɹ qnHʇᴉפ](https://github.com/Egg-China/Aura-Launcher/releases) uᴉ ˥ƆWH ɟo uoᴉsɹǝʌ ʇsǝʇɐl ǝɥʇ puᴉɟ oslɐ uɐɔ no⅄
 
-Aura Launcher is currently private pre-release software. Every build version ends in `-next`.
+Aura Launcher is currently public pre-release software. Every build version ends in `-next`.
