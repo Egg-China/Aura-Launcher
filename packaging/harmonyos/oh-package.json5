@@ -1,0 +1,11 @@
+{
+  "modelVersion": "5.0.0",
+  "license": "GPL-3.0-only",
+  "devDependencies": {},
+  "author": "Aura Launcher contributors",
+  "name": "aura-launcher-harmonyos",
+  "description": "Experimental Aura Launcher Stage application for HarmonyOS PC",
+  "main": "",
+  "version": "27.1.0-next",
+  "dependencies": {}
+}

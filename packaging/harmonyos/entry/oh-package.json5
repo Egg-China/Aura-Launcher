@@ -1,0 +1,12 @@
+{
+  "license": "GPL-3.0-only",
+  "devDependencies": {},
+  "author": "Aura Launcher contributors",
+  "name": "aura-launcher-entry",
+  "description": "Aura Launcher HarmonyOS PC entry module",
+  "main": "",
+  "version": "27.1.0-next",
+  "dependencies": {
+    "libaura_launcher.so": "file:./src/main/cpp/types/libaura_launcher"
+  }
+}

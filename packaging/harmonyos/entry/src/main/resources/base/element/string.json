@@ -1,0 +1,44 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "Aura Launcher"
+    },
+    {
+      "name": "module_description",
+      "value": "Aura Launcher for HarmonyOS PC"
+    },
+    {
+      "name": "status_prerequisite_missing",
+      "value": "BiSheng JDK 17 or later is required."
+    },
+    {
+      "name": "status_ready",
+      "value": "Ready to start Aura Launcher."
+    },
+    {
+      "name": "status_starting",
+      "value": "Starting Aura Launcher..."
+    },
+    {
+      "name": "status_started_unverified",
+      "value": "Aura Launcher started; UI readiness is not yet verified."
+    },
+    {
+      "name": "status_early_exit",
+      "value": "Aura Launcher exited during startup."
+    },
+    {
+      "name": "diagnostics_title",
+      "value": "Diagnostics"
+    },
+    {
+      "name": "permission_reason",
+      "value": "Aura Launcher needs access to user-selected game and download files."
+    },
+    {
+      "name": "retry",
+      "value": "Retry"
+    }
+  ]
+}

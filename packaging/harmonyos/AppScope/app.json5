@@ -1,0 +1,10 @@
+{
+  "app": {
+    "bundleName": "com.eggchina.auralauncher",
+    "vendor": "Egg-China",
+    "versionCode": 271001,
+    "versionName": "27.1-next",
+    "icon": "$media:app_icon",
+    "label": "$string:app_name"
+  }
+}

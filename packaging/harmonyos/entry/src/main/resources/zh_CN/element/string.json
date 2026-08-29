@@ -1,0 +1,44 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "Aura Launcher"
+    },
+    {
+      "name": "module_description",
+      "value": "适用于 HarmonyOS PC 的 Aura Launcher"
+    },
+    {
+      "name": "status_prerequisite_missing",
+      "value": "需要 BiSheng JDK 17 或更高版本。"
+    },
+    {
+      "name": "status_ready",
+      "value": "已准备启动 Aura Launcher。"
+    },
+    {
+      "name": "status_starting",
+      "value": "正在启动 Aura Launcher..."
+    },
+    {
+      "name": "status_started_unverified",
+      "value": "Aura Launcher 已启动，但尚未验证界面是否就绪。"
+    },
+    {
+      "name": "status_early_exit",
+      "value": "Aura Launcher 在启动阶段退出。"
+    },
+    {
+      "name": "diagnostics_title",
+      "value": "诊断信息"
+    },
+    {
+      "name": "permission_reason",
+      "value": "Aura Launcher 需要访问用户选择的游戏与下载文件。"
+    },
+    {
+      "name": "retry",
+      "value": "重试"
+    }
+  ]
+}

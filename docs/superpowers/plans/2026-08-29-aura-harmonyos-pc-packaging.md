@@ -448,7 +448,7 @@ Assert-Condition ($app.bundleName -ceq 'com.eggchina.auralauncher') 'wrong bundl
 Assert-Condition ($module.deviceTypes.Count -eq 1 -and $module.deviceTypes[0] -ceq '2in1') `
     'HarmonyOS package must target 2in1 only'
 Assert-Condition ($module.hnpPackages.Count -eq 1 `
-    -and $module.hnpPackages[0].package -ceq 'aura_launcher' `
+    -and $module.hnpPackages[0].package -ceq 'aura_launcher.hnp' `
     -and $module.hnpPackages[0].type -ceq 'private') 'Aura HNP must be private'
 Assert-SetEquals $module.requestPermissions.name @(
     'ohos.permission.INTERNET',
@@ -482,7 +482,7 @@ Use SDK baseline `6.0.1(21)`, `compatibleSdkVersion: "6.0.1(21)"`, `targetSdkVer
 ```json5
 "hnpPackages": [
   {
-    "package": "aura_launcher",
+    "package": "aura_launcher.hnp",
     "type": "private"
   }
 ]

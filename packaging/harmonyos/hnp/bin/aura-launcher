@@ -1,0 +1,23 @@
+#!/system/bin/sh
+set -eu
+
+SELF="$(readlink -f -- "$0")"
+HNP_ROOT="$(CDPATH= cd -- "$(dirname -- "$SELF")/.." && pwd -P)"
+JAR="$HNP_ROOT/share/aura/Aura-Launcher-27.1-next.jar"
+JAVA="$(command -v java || true)"
+
+if [ -z "$JAVA" ]; then
+  echo "BiShengJDK17-OH is required; java was not found in the HNP application PATH." >&2
+  exit 69
+fi
+if [ ! -r "$JAR" ]; then
+  echo "Aura Launcher package is incomplete: $JAR is missing." >&2
+  exit 66
+fi
+JAVA_VERSION="$($JAVA -version 2>&1 | sed -n '1p')"
+JAVA_FEATURE="$(printf '%s\n' "$JAVA_VERSION" | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p')"
+if [ -z "$JAVA_FEATURE" ] || [ "$JAVA_FEATURE" -lt 17 ]; then
+  echo "BiSheng JDK 17 or later is required." >&2
+  exit 69
+fi
+exec "$JAVA" -jar "$JAR"

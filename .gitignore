@@ -85,5 +85,13 @@ language-subtag-registry
 # Local launcher artifacts
 /Aura-Launcher-*.jar
 
+# HarmonyOS packaging outputs
+/packaging/harmonyos/.hvigor/
+/packaging/harmonyos/oh_modules/
+/packaging/harmonyos/build/
+/packaging/harmonyos/entry/build/
+/packaging/harmonyos/entry/src/main/hnp/
+/packaging/harmonyos/out/
+
 # Bundled Aura launcher header
 !AuraLauncher/launcher/HMCLauncher.exe

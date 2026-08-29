@@ -1,0 +1,6 @@
+{
+  "name": "libaura_launcher.so",
+  "types": "./index.d.ts",
+  "version": "27.1.0-next",
+  "description": "Fixed Aura Launcher process bridge for HarmonyOS PC"
+}
