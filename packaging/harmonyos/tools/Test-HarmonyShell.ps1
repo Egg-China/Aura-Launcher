@@ -55,7 +55,7 @@ function Invoke-Entrypoint([string]$Entrypoint, [string]$FakeBin, [string]$Untru
     $ErrorActionPreference = 'Continue'
     try {
         $records = @(& $bash -lc `
-            'PATH="$1:/usr/bin:/bin"; export PATH; exec /usr/bin/sh "$2" "$3"' `
+            'PATH="$1"; export PATH; exec /usr/bin/sh "$2" "$3"' `
             aura-test $fakeBinUnix $entrypointUnix $UntrustedArgument 2>&1)
         $exitCode = $LASTEXITCODE
         $output = ($records | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
@@ -82,14 +82,16 @@ try {
         [byte[]](0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     )
 
-    $readlink = Join-Path $fakeBin 'readlink'
-    Write-Utf8NoBom $readlink @'
-#!/bin/sh
-exec /usr/bin/readlink "$@"
-'@
+    $toolWrappers = @('readlink', 'dirname', 'sed')
+    foreach ($toolName in $toolWrappers) {
+        $toolPath = Join-Path $fakeBin $toolName
+        Write-Utf8NoBom $toolPath "#!/bin/sh`nexec /usr/bin/$toolName `"`$@`"`n"
+    }
     $entrypointUnix = Convert-ToBashPath $entrypoint
-    $readlinkUnix = Convert-ToBashPath $readlink
-    & $bash -lc 'chmod 755 "$1" "$2"' aura-test $entrypointUnix $readlinkUnix
+    $wrapperPaths = @($toolWrappers | ForEach-Object {
+        Convert-ToBashPath (Join-Path $fakeBin $_)
+    })
+    & $bash -lc 'chmod 755 "$@"' aura-test $entrypointUnix @wrapperPaths
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to mark shell fixtures executable'
     }
