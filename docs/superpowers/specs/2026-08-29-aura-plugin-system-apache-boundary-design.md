@@ -1,6 +1,6 @@
 # Aura Plugin System Apache License Boundary Design
 
-**Status:** User-approved direction; written design pending final review  
+**Status:** Approved
 **Date:** 2026-08-29
 
 ## Objective
@@ -16,20 +16,24 @@ the README states the boundary explicitly.
 
 ## Established Facts
 
-- The imported Aura source snapshot did not contain
-  `org/jackhuang/hmcl/plugin/**`.
-- The first local source-history commit containing `PluginManager` is authored by
-  `ACX <anxunbcx@gmail.com>`.
-- The Aura rebrand commit added 140 plugin production files and 73 plugin test files; later Aura
-  commits extended the same subsystem.
+- The imported Aura source snapshot contains 140 plugin production files and 73 plugin test files
+  under its original `HMCL/` module path.
+- The Aura rebrand commit moved those files to `AuraLauncher/` with 98-100% Git similarity; it did
+  not create the original subsystem.
+- The local source repository begins with root commit `bce314563`, authored by
+  `ACX <anxunbcx@gmail.com>`, and its subsequent plugin-system history is also authored by ACX.
+- The user has explicitly confirmed ownership of the original plugin-system work and has directed
+  that it be relicensed under Apache License 2.0. Commit authorship alone is not treated as proof of
+  copyright ownership.
 - The current tree contains 151 plugin production Java files, all of which currently carry the
-  copied upstream GPL header even though the subsystem is Aura-authored.
+  generic launcher GPL header even though the subsystem is user-confirmed Aura-authored work.
 - The plugin package currently has 57 imports from launcher-owned packages, while 15 Java files
   outside the package import plugin types. A standalone Gradle module would therefore create a
   dependency cycle without a larger port-and-adapter refactor.
 
-These facts support a source-directory licensing boundary now. They do not support relicensing
-files copied from or modified in the imported snapshot.
+These facts and the user's ownership confirmation support a source-directory licensing boundary
+for the plugin system. They do not support relicensing inherited launcher files merely because the
+Aura root commit or later integration commits were authored by ACX.
 
 ## License Layout
 
@@ -75,12 +79,13 @@ documentation may move to `AuraPluginSystem/docs/` when it is entirely Aura-auth
 upstream-derived documentation remains under the root GPL boundary.
 
 Launcher integration points remain in `AuraLauncher/` and remain GPL. This includes modifications
-to application entry points, launch orchestration, game-process listeners, navigation roots,
-updating, shared translations, and other files that existed in the imported snapshot.
+to inherited application entry points, launch orchestration, game-process listeners, navigation
+roots, updating, shared translations, and other files belonging to the inherited launcher.
 
-Before moving each file outside `org/jackhuang/hmcl/plugin/**`, migration checks must establish that
-the file was added after the imported snapshot and does not contain third-party or copied upstream
-material. Ambiguous files remain GPL.
+Before moving each file outside `org/jackhuang/hmcl/plugin/**`, migration checks must compare its
+source-repository history and content with the inherited launcher and confirm that it belongs to the
+user-identified plugin system without third-party or copied upstream material. Ambiguous files
+remain GPL.
 
 ## Build Integration
 
