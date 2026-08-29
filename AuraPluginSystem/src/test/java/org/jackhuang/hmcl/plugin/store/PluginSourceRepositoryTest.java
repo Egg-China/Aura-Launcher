@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /// Verifies durable ordered plugin-source configuration and legacy preference migration.
 @NotNullByDefault
 public final class PluginSourceRepositoryTest {
-    /// Installs immutable Aura Store and Topic placeholders in a disabled state for a fresh profile.
+    /// Installs immutable Aura Store and Topic placeholders using their verified default policies.
     @Test
     public void createsBuiltInOfficialAndTopicSources(@TempDir Path localHome) {
         PluginStorePreferences preferences = new PluginStorePreferences(localHome);
@@ -48,7 +48,10 @@ public final class PluginSourceRepositoryTest {
         );
         assertTrue(preferences.getSources().get(0).isOfficial());
         assertTrue(preferences.getSources().get(1).isGitHubTopic());
-        assertFalse(preferences.getSources().get(0).isEnabled());
+        assertEquals(
+                PluginStoreManager.DEFAULT_REGISTRY_ENABLED,
+                preferences.getSources().get(0).isEnabled()
+        );
         assertFalse(preferences.getSources().get(1).isEnabled());
         assertThrows(IllegalArgumentException.class,
                 () -> preferences.removeSource(PluginSource.HMCLCE_TOPIC_ID));

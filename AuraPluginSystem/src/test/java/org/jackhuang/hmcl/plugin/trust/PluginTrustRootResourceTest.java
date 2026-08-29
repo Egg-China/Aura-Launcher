@@ -26,16 +26,18 @@ import java.util.Base64;
 import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /// Verifies that every Aura build contains a syntactically valid plugin trust anchor resource.
 @NotNullByDefault
 public final class PluginTrustRootResourceTest {
-    /// Loads the development root and retains unsigned community behavior.
+    /// Loads the selected embedded root profile and retains unsigned community behavior.
     @Test
-    public void loadsEmbeddedDevelopmentRoot() throws Exception {
+    public void loadsEmbeddedTrustRootProfile() throws Exception {
         PluginTrustVerifier verifier = PluginTrustVerifier.loadDefault();
+        boolean officialRootConfigured = !System.getenv()
+                .getOrDefault("AURA_PLUGIN_ROOT_JSON", "")
+                .isBlank();
         JsonObject manifest = new JsonObject();
         manifest.addProperty("schemaVersion", 2);
         manifest.addProperty("id", "dev.example.plugin");
@@ -45,7 +47,7 @@ public final class PluginTrustRootResourceTest {
                 PluginTrustLevel.COMMUNITY,
                 verifier.verifyManifest(manifest, "dev.example.plugin", "github.com/example/plugin").trust().level()
         );
-        assertFalse(verifier.supportsOfficialRegistry());
+        assertEquals(officialRootConfigured, verifier.supportsOfficialRegistry());
     }
 
     /// Rejects online roles whose otherwise different key sets partially overlap.

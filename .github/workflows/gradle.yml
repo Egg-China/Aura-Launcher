@@ -18,6 +18,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      AURA_PLUGIN_ROOT_JSON: ${{ vars.AURA_PLUGIN_ROOT_JSON }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Set up JDK 17
@@ -37,6 +39,15 @@ jobs:
         env:
           MICROSOFT_AUTH_ID: ${{ secrets.CLIENT_ID }}
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+      - name: Verify plugin trust-root profiles
+        run: pwsh -NoProfile -File ./tools/test-plugin-trust-root.ps1
+      - name: Verify public plugin Store
+        run: >-
+          xvfb-run -a ./gradlew :AuraLauncher:test
+          --tests org.jackhuang.hmcl.plugin.store.PluginStorePublicSmokeTest
+          --rerun-tasks --no-daemon --stacktrace
+        env:
+          AURA_PUBLIC_STORE_SMOKE: 'true'
       - name: Upload launcher artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

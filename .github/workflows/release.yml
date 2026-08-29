@@ -64,6 +64,7 @@ jobs:
       - name: Build release artifacts
         run: xvfb-run -a ./gradlew clean :AuraLauncher:build --no-daemon --parallel --stacktrace
         env:
+          AURA_PLUGIN_ROOT_JSON: ${{ vars.AURA_PLUGIN_ROOT_JSON }}
           BUILD_VERSION: ${{ inputs.version }}
           VERSION_TYPE: ${{ inputs.prerelease && 'dev' || 'stable' }}
           MICROSOFT_AUTH_ID: ${{ secrets.CLIENT_ID }}
