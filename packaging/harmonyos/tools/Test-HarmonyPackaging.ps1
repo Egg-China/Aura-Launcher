@@ -253,6 +253,7 @@ function Invoke-Build(
         $output = ($records | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
     } finally {
         $ErrorActionPreference = $previousPreference
+        $global:LASTEXITCODE = 0
     }
     return [pscustomobject]@{ ExitCode = $exitCode; Output = $output }
 }
