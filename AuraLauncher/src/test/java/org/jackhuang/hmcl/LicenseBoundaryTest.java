@@ -83,8 +83,8 @@ public final class LicenseBoundaryTest {
     /// Requires the complete plugin production and test source trees to use only Apache headers.
     @Test
     public void pluginSourcesUseOnlyApacheHeaders() throws IOException {
-        assertApacheJavaTree(PLUGIN_SYSTEM_ROOT.resolve("src/main/java"), 151L);
-        assertApacheJavaTree(PLUGIN_SYSTEM_ROOT.resolve("src/test/java"), 81L);
+        assertApacheJavaTree(PLUGIN_SYSTEM_ROOT.resolve("src/main/java"), 159L);
+        assertApacheJavaTree(PLUGIN_SYSTEM_ROOT.resolve("src/test/java"), 86L);
     }
 
     /// Requires the GPL launcher source trees to reject Apache-owned Java sources.
