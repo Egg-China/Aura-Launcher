@@ -23,7 +23,7 @@
 Aura Launcher 是由 Egg-China 开发的跨平台 Minecraft 启动器。它保留成熟的游戏安装、实例管理和启动能力，并以独立的插件架构、安全边界与发布体系面向未来持续演进。
 
 > [!IMPORTANT]
-> Aura Launcher 当前处于 **Next 开发阶段**，尚未提供稳定版本。此仓库产生的构建版本均以 `-next` 结尾，发布文件统一命名为 `Aura-Launcher-<version>`。
+> Aura Launcher 当前处于 **Next 开发阶段**，尚未提供稳定版本。此仓库产生的构建版本均以 `-next` 结尾，发布文件统一命名为 `Aura-Launcher-<version>.jar`。
 
 ### 特性
 
@@ -81,7 +81,7 @@ Aura Launcher 基于既有开源代码持续开发，同时保持独立的产品
 Aura Launcher is a cross-platform Minecraft launcher developed by Egg-China. It retains mature game installation, instance management, and launch capabilities while evolving through an independent plugin architecture, security model, and release pipeline.
 
 > [!IMPORTANT]
-> Aura Launcher is currently on the **Next development line** and does not yet provide a stable release. Every build from this repository ends in `-next`, and distributable files use the name `Aura-Launcher-<version>`.
+> Aura Launcher is currently on the **Next development line** and does not yet provide a stable release. Every build from this repository ends in `-next`, and distributable files use the name `Aura-Launcher-<version>.jar`.
 
 ### Features
 

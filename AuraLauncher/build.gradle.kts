@@ -398,9 +398,31 @@ tasks.shadowJar {
 /// The Shadow JAR is Aura Launcher's distributable Java payload; resolve its path after archive naming is configured.
 val jarPath = tasks.shadowJar.get().archiveFile.get().asFile
 
+val pluginSystemLegalResources = mapOf(
+    "META-INF/licenses/Aura-Plugin-System-LICENSE.txt" to pluginSystemDirectory.file("LICENSE").asFile,
+    "META-INF/notices/Aura-Plugin-System-NOTICE.txt" to pluginSystemDirectory.file("NOTICE").asFile,
+)
+
+fun verifyJarEntries(jar: File, expectedEntries: Map<String, File>) {
+    ZipFile(jar).use { zipFile ->
+        for ((entryPath, canonicalFile) in expectedEntries) {
+            val matchingEntries = zipFile.stream().filter { it.name == entryPath }.toList()
+            if (matchingEntries.size != 1) {
+                throw GradleException("Expected one $entryPath in ${jar.name}; found ${matchingEntries.size}")
+            }
+            val entry = matchingEntries.single()
+            val packagedBytes = zipFile.getInputStream(entry).use { it.readBytes() }
+            if (!packagedBytes.contentEquals(canonicalFile.readBytes())) {
+                throw GradleException("$entryPath does not match ${canonicalFile.relativeTo(rootProject.rootDir)}")
+            }
+        }
+    }
+}
+
 tasks.shadowJar {
     doLast {
         attachSignature(jarPath)
+        verifyJarEntries(jarPath, pluginSystemLegalResources)
         createChecksum(jarPath)
     }
 }
@@ -422,6 +444,18 @@ tasks.processResources {
         from(createLanguageList.map { it.outputFile })
         from(upsideDownTranslate.map { it.outputFile })
         from(createLocaleNamesResourceBundle.map { it.outputDirectory })
+    }
+
+    into("META-INF/licenses") {
+        from(pluginSystemDirectory.file("LICENSE")) {
+            rename { "Aura-Plugin-System-LICENSE.txt" }
+        }
+    }
+
+    into("META-INF/notices") {
+        from(pluginSystemDirectory.file("NOTICE")) {
+            rename { "Aura-Plugin-System-NOTICE.txt" }
+        }
     }
 
     inputs.property("terracotta_version", libs.versions.terracotta)

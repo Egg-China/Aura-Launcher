@@ -23,16 +23,21 @@ import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Verifies the repository's directory-specific license policy.
@@ -41,14 +46,28 @@ public final class LicenseBoundaryTest {
     /// Expected Apache license directory.
     private static final Path PLUGIN_SYSTEM_ROOT = repositoryRoot().resolve("AuraPluginSystem");
 
-    /// Expected GPL launcher directory.
-    private static final Path LAUNCHER_ROOT = repositoryRoot().resolve("AuraLauncher");
-
     /// Identifies the Apache header without placing the complete marker in the GPL tree's source text.
     private static final String APACHE_MARKER = "Licensed under the Apache License, " + "Version 2.0";
 
     /// Identifies Java sources owned by the Apache plugin-system boundary.
     private static final String APACHE_OWNERSHIP_MARKER = "Copyright 2026 Aura Launcher " + "contributors";
+
+    /// Canonical four-line Aura Plugin System attribution notice.
+    private static final String EXPECTED_APACHE_NOTICE = "Aura Plugin System\n"
+            + "Copyright 2026 Aura Launcher " + "contributors\n\n"
+            + "This product includes software developed by Aura Launcher " + "contributors.\n";
+
+    /// Generated and repository-metadata directories excluded from the first-party source scan.
+    private static final @Unmodifiable Set<String> REPOSITORY_SCAN_EXCLUDED_DIRECTORIES =
+            Set.of(".git", ".gradle", ".worktrees", "build");
+
+    /// Classpath location reserved for the Aura Plugin System Apache license.
+    private static final String PACKAGED_APACHE_LICENSE =
+            "META-INF/licenses/Aura-Plugin-System-LICENSE.txt";
+
+    /// Classpath location reserved for the Aura Plugin System attribution notice.
+    private static final String PACKAGED_APACHE_NOTICE =
+            "META-INF/notices/Aura-Plugin-System-NOTICE.txt";
 
     /// Locates the repository root from Gradle or an IDE working directory.
     private static Path repositoryRoot() {
@@ -75,9 +94,16 @@ public final class LicenseBoundaryTest {
         assertEquals(11_357L, Files.size(license));
         assertEquals("c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
                 HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(license))));
-        assertTrue(Files.readString(notice).contains(APACHE_OWNERSHIP_MARKER));
+        assertArrayEquals(EXPECTED_APACHE_NOTICE.getBytes(StandardCharsets.UTF_8), Files.readAllBytes(notice));
         assertTrue(Files.readString(readme).contains("Apache License 2.0"));
         assertTrue(Files.readString(readme).contains("combined Aura Launcher distribution remains GPL"));
+    }
+
+    /// Requires runtime resources to reproduce the canonical plugin-system legal files byte for byte.
+    @Test
+    public void packagedPluginSystemLegalResourcesMatchCanonicalFiles() throws IOException {
+        assertPackagedResourceMatches(PACKAGED_APACHE_LICENSE, PLUGIN_SYSTEM_ROOT.resolve("LICENSE"));
+        assertPackagedResourceMatches(PACKAGED_APACHE_NOTICE, PLUGIN_SYSTEM_ROOT.resolve("NOTICE"));
     }
 
     /// Requires the complete plugin production and test source trees to use only Apache headers.
@@ -87,12 +113,16 @@ public final class LicenseBoundaryTest {
         assertApacheJavaTree(PLUGIN_SYSTEM_ROOT.resolve("src/test/java"), 86L);
     }
 
-    /// Requires the GPL launcher source trees to reject Apache-owned Java sources.
+    /// Requires every first-party Java source outside the plugin system to reject Apache ownership markers.
     @Test
-    public void launcherSourcesRejectApacheHeaders() throws IOException {
-        try (Stream<Path> files = Files.walk(LAUNCHER_ROOT.resolve("src"))) {
+    public void repositoryJavaSourcesOutsidePluginSystemRejectApacheOwnershipMarker() throws IOException {
+        Path repositoryRoot = repositoryRoot();
+        try (Stream<Path> files = Files.walk(repositoryRoot)) {
             @Unmodifiable List<Path> javaFiles = files
-                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".java"))
+                    .filter(path -> !path.startsWith(PLUGIN_SYSTEM_ROOT))
+                    .filter(path -> isFirstPartySourcePath(repositoryRoot.relativize(path)))
                     .toList();
             for (Path file : javaFiles) {
                 String source = Files.readString(file);
@@ -114,6 +144,25 @@ public final class LicenseBoundaryTest {
                 assertTrue(source.contains(APACHE_MARKER), file.toString());
                 assertFalse(source.contains("GNU General Public License"), file.toString());
             }
+        }
+    }
+
+    /// Reports whether a repository-relative path is outside generated and metadata directories.
+    private static boolean isFirstPartySourcePath(Path relativePath) {
+        for (Path element : relativePath) {
+            if (REPOSITORY_SCAN_EXCLUDED_DIRECTORIES.contains(element.toString())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Requires one classpath resource to match its canonical repository file exactly.
+    private static void assertPackagedResourceMatches(String resourcePath, Path canonicalFile) throws IOException {
+        @Nullable InputStream resource = LicenseBoundaryTest.class.getClassLoader().getResourceAsStream(resourcePath);
+        assertNotNull(resource, resourcePath);
+        try (resource) {
+            assertArrayEquals(Files.readAllBytes(canonicalFile), resource.readAllBytes(), resourcePath);
         }
     }
 }
