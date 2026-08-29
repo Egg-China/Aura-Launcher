@@ -1,0 +1,62 @@
+name: HarmonyOS Packaging Contracts
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packaging/harmonyos/**'
+      - 'AuraPluginSystem/src/main/java/org/jackhuang/hmcl/plugin/runtime/PluginPlatformTarget.java'
+      - 'AuraPluginSystem/src/main/java/org/jackhuang/hmcl/plugin/store/PluginStoreManifest.java'
+      - 'AuraPluginSystem/src/test/java/org/jackhuang/hmcl/plugin/runtime/PluginPlatformTargetTest.java'
+      - 'AuraPluginSystem/src/test/java/org/jackhuang/hmcl/plugin/runtime/PluginCompatibilityEvaluatorTest.java'
+      - 'AuraPluginSystem/src/test/java/org/jackhuang/hmcl/plugin/store/PluginStoreManifestTest.java'
+      - '.github/workflows/harmonyos-contracts.yml'
+      - '.github/workflows/harmonyos-sdk.yml'
+      - '.github/scripts/test-harmonyos-workflow-policy.ps1'
+  pull_request:
+    paths:
+      - 'packaging/harmonyos/**'
+      - 'AuraPluginSystem/src/main/java/org/jackhuang/hmcl/plugin/runtime/PluginPlatformTarget.java'
+      - 'AuraPluginSystem/src/main/java/org/jackhuang/hmcl/plugin/store/PluginStoreManifest.java'
+      - 'AuraPluginSystem/src/test/java/org/jackhuang/hmcl/plugin/runtime/PluginPlatformTargetTest.java'
+      - 'AuraPluginSystem/src/test/java/org/jackhuang/hmcl/plugin/runtime/PluginCompatibilityEvaluatorTest.java'
+      - 'AuraPluginSystem/src/test/java/org/jackhuang/hmcl/plugin/store/PluginStoreManifestTest.java'
+      - '.github/workflows/harmonyos-contracts.yml'
+      - '.github/workflows/harmonyos-sdk.yml'
+      - '.github/scripts/test-harmonyos-workflow-policy.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out Aura Launcher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: zulu
+          java-version: '17'
+          java-package: jdk+fx
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
+        with:
+          cache-cleanup: never
+      - name: Test HarmonyOS contracts
+        shell: pwsh
+        run: |
+          ./packaging/harmonyos/tools/Test-HarmonyProject.ps1
+          ./packaging/harmonyos/tools/Test-HarmonyShell.ps1
+          ./packaging/harmonyos/tools/Test-HarmonyPackaging.ps1
+          ./.github/scripts/test-harmonyos-workflow-policy.ps1
+      - name: Test plugin platform behavior
+        run: >-
+          ./gradlew :AuraLauncher:test
+          --tests org.jackhuang.hmcl.plugin.runtime.PluginPlatformTargetTest
+          --tests org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityEvaluatorTest
+          --tests org.jackhuang.hmcl.plugin.store.PluginStoreManifestTest
+          --no-daemon --stacktrace

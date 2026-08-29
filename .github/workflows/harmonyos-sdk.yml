@@ -1,0 +1,173 @@
+name: HarmonyOS Real SDK Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Positive HarmonyOS HAP versionCode
+        required: true
+        default: '271001'
+        type: string
+      signing_mode:
+        description: HAP signing state for this evidence build
+        required: true
+        default: unsigned
+        type: choice
+        options:
+          - unsigned
+          - debug
+          - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmonyos-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: github.repository == 'Egg-China/Aura-Launcher'
+    runs-on: [self-hosted, harmonyos-sdk, arm64]
+    environment: harmonyos-packaging
+    timeout-minutes: 45
+    steps:
+      - name: Check out Aura Launcher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate runner inputs and build exact Shadow JAR
+        id: inputs
+        shell: pwsh
+        env:
+          AURA_VERSION_CODE: ${{ inputs.version_code }}
+          HARMONYOS_HNPCLI_PATH: ${{ vars.HARMONYOS_HNPCLI_PATH }}
+          HARMONYOS_HVIGOR_PATH: ${{ vars.HARMONYOS_HVIGOR_PATH }}
+          BUILD_VERSION: '27.1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $versionCode = 0
+          $validVersionCode = [int]::TryParse(
+              $env:AURA_VERSION_CODE,
+              [System.Globalization.NumberStyles]::None,
+              [System.Globalization.CultureInfo]::InvariantCulture,
+              [ref]$versionCode
+          )
+          if (-not $validVersionCode -or $versionCode -le 0) {
+              throw 'version_code must be a positive 32-bit integer'
+          }
+          foreach ($tool in @($env:HARMONYOS_HNPCLI_PATH, $env:HARMONYOS_HVIGOR_PATH)) {
+              if ([string]::IsNullOrWhiteSpace($tool) -or -not (Test-Path -LiteralPath $tool -PathType Leaf)) {
+                  throw 'The protected runner must provide hnpcli and Hvigor paths'
+              }
+          }
+          & ./gradlew :AuraLauncher:shadowJar --no-daemon --stacktrace
+          if ($LASTEXITCODE -ne 0) {
+              throw "Gradle exited with code $LASTEXITCODE"
+          }
+          $jars = @(Get-ChildItem -LiteralPath 'AuraLauncher/build/libs' -File `
+              -Filter 'Aura-Launcher-*.jar')
+          if ($jars.Count -ne 1 -or $jars[0].Name -cne 'Aura-Launcher-27.1-next.jar') {
+              throw "Unexpected Aura Shadow JAR set: $($jars.Name -join ', ')"
+          }
+          $outputDirectory = Join-Path $env:RUNNER_TEMP `
+              ('aura-harmony-' + [guid]::NewGuid().ToString('N'))
+          "launcher_jar=$($jars[0].FullName)" >> $env:GITHUB_OUTPUT
+          "output_directory=$outputDirectory" >> $env:GITHUB_OUTPUT
+          "version_code=$versionCode" >> $env:GITHUB_OUTPUT
+      - name: Build unsigned HarmonyOS evidence
+        if: inputs.signing_mode == 'unsigned'
+        shell: pwsh
+        env:
+          LAUNCHER_JAR: ${{ steps.inputs.outputs.launcher_jar }}
+          OUTPUT_DIRECTORY: ${{ steps.inputs.outputs.output_directory }}
+          VERSION_CODE: ${{ steps.inputs.outputs.version_code }}
+          HARMONYOS_HNPCLI_PATH: ${{ vars.HARMONYOS_HNPCLI_PATH }}
+          HARMONYOS_HVIGOR_PATH: ${{ vars.HARMONYOS_HVIGOR_PATH }}
+        run: |
+          & ./packaging/harmonyos/tools/Build-HarmonyPackage.ps1 `
+              -LauncherJar $env:LAUNCHER_JAR `
+              -HnpCli $env:HARMONYOS_HNPCLI_PATH `
+              -Hvigor $env:HARMONYOS_HVIGOR_PATH `
+              -OutputDirectory $env:OUTPUT_DIRECTORY `
+              -VersionCode ([int]$env:VERSION_CODE)
+      - name: Build debug-signed HarmonyOS evidence
+        if: inputs.signing_mode == 'debug'
+        shell: pwsh
+        env:
+          LAUNCHER_JAR: ${{ steps.inputs.outputs.launcher_jar }}
+          OUTPUT_DIRECTORY: ${{ steps.inputs.outputs.output_directory }}
+          VERSION_CODE: ${{ steps.inputs.outputs.version_code }}
+          HARMONYOS_HNPCLI_PATH: ${{ vars.HARMONYOS_HNPCLI_PATH }}
+          HARMONYOS_HVIGOR_PATH: ${{ vars.HARMONYOS_HVIGOR_PATH }}
+          HARMONYOS_SIGNER_PATH: ${{ vars.HARMONYOS_SIGNER_PATH }}
+          HARMONYOS_SIGNING_PROFILE: ${{ vars.HARMONYOS_DEBUG_SIGNING_PROFILE }}
+          HARMONYOS_SIGNING_CERTIFICATE: ${{ vars.HARMONYOS_DEBUG_SIGNING_CERTIFICATE }}
+          HARMONYOS_SIGNING_KEY_ALIAS: ${{ vars.HARMONYOS_DEBUG_SIGNING_KEY_ALIAS }}
+          HARMONYOS_SIGNING_PASSWORD_REFERENCE: ${{ secrets.HARMONYOS_DEBUG_SIGNING_PASSWORD_REFERENCE }}
+        run: |
+          & ./packaging/harmonyos/tools/Build-HarmonyPackage.ps1 `
+              -LauncherJar $env:LAUNCHER_JAR `
+              -HnpCli $env:HARMONYOS_HNPCLI_PATH `
+              -Hvigor $env:HARMONYOS_HVIGOR_PATH `
+              -OutputDirectory $env:OUTPUT_DIRECTORY `
+              -VersionCode ([int]$env:VERSION_CODE) `
+              -Signer $env:HARMONYOS_SIGNER_PATH `
+              -SigningProfile $env:HARMONYOS_SIGNING_PROFILE `
+              -SigningCertificate $env:HARMONYOS_SIGNING_CERTIFICATE `
+              -SigningKeyAlias $env:HARMONYOS_SIGNING_KEY_ALIAS `
+              -SigningPasswordReference $env:HARMONYOS_SIGNING_PASSWORD_REFERENCE `
+              -SigningKind debug
+      - name: Build release-signed HarmonyOS evidence
+        if: inputs.signing_mode == 'release'
+        shell: pwsh
+        env:
+          LAUNCHER_JAR: ${{ steps.inputs.outputs.launcher_jar }}
+          OUTPUT_DIRECTORY: ${{ steps.inputs.outputs.output_directory }}
+          VERSION_CODE: ${{ steps.inputs.outputs.version_code }}
+          HARMONYOS_HNPCLI_PATH: ${{ vars.HARMONYOS_HNPCLI_PATH }}
+          HARMONYOS_HVIGOR_PATH: ${{ vars.HARMONYOS_HVIGOR_PATH }}
+          HARMONYOS_SIGNER_PATH: ${{ vars.HARMONYOS_SIGNER_PATH }}
+          HARMONYOS_SIGNING_PROFILE: ${{ vars.HARMONYOS_RELEASE_SIGNING_PROFILE }}
+          HARMONYOS_SIGNING_CERTIFICATE: ${{ vars.HARMONYOS_RELEASE_SIGNING_CERTIFICATE }}
+          HARMONYOS_SIGNING_KEY_ALIAS: ${{ vars.HARMONYOS_RELEASE_SIGNING_KEY_ALIAS }}
+          HARMONYOS_SIGNING_PASSWORD_REFERENCE: ${{ secrets.HARMONYOS_RELEASE_SIGNING_PASSWORD_REFERENCE }}
+        run: |
+          & ./packaging/harmonyos/tools/Build-HarmonyPackage.ps1 `
+              -LauncherJar $env:LAUNCHER_JAR `
+              -HnpCli $env:HARMONYOS_HNPCLI_PATH `
+              -Hvigor $env:HARMONYOS_HVIGOR_PATH `
+              -OutputDirectory $env:OUTPUT_DIRECTORY `
+              -VersionCode ([int]$env:VERSION_CODE) `
+              -Signer $env:HARMONYOS_SIGNER_PATH `
+              -SigningProfile $env:HARMONYOS_SIGNING_PROFILE `
+              -SigningCertificate $env:HARMONYOS_SIGNING_CERTIFICATE `
+              -SigningKeyAlias $env:HARMONYOS_SIGNING_KEY_ALIAS `
+              -SigningPasswordReference $env:HARMONYOS_SIGNING_PASSWORD_REFERENCE `
+              -SigningKind release
+      - name: Upload HarmonyOS workflow evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Aura-Launcher-27.1-next-harmonyos-${{ inputs.signing_mode }}-${{ github.sha }}
+          path: ${{ steps.inputs.outputs.output_directory }}/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove runner-local package outputs
+        if: always()
+        shell: pwsh
+        env:
+          OUTPUT_DIRECTORY: ${{ steps.inputs.outputs.output_directory }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OUTPUT_DIRECTORY) `
+                  -or -not (Test-Path -LiteralPath $env:OUTPUT_DIRECTORY)) {
+              exit 0
+          }
+          $output = [System.IO.Path]::GetFullPath($env:OUTPUT_DIRECTORY)
+          $runnerTemp = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd(
+              [System.IO.Path]::DirectorySeparatorChar,
+              [System.IO.Path]::AltDirectorySeparatorChar
+          )
+          $prefix = $runnerTemp + [System.IO.Path]::DirectorySeparatorChar
+          if (-not $output.StartsWith($prefix, [System.StringComparison]::Ordinal)) {
+              throw 'Refusing to remove HarmonyOS output outside RUNNER_TEMP'
+          }
+          Remove-Item -LiteralPath $output -Recurse -Force

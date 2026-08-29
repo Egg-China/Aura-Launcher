@@ -228,3 +228,24 @@ Legend:
   </tbody>
 </table>
 <!-- #END BLOCK -->
+
+## HarmonyOS PC (ARM64, experimental)
+
+HarmonyOS PC uses a Linux kernel, so Linux ARM64 artifacts may work in principle, but this does not
+constitute a support claim. Aura Launcher, JavaFX, Minecraft launching, and every external Runtime
+Host remain untested on real HarmonyOS PC hardware. HarmonyOS PC architectures other than ARM64 are
+unsupported. See the [experimental packaging guide](../packaging/harmonyos/README.md) for the build
+and true-device acceptance boundary.
+
+| Capability | HarmonyOS PC ARM64 status |
+| --- | --- |
+| Plugin platform identity | Built in as `harmonyos-arm64` |
+| Native HarmonyOS NPL selection | Exact target preferred; no public native artifact yet |
+| Linux ARM64 NPL selection | One-way fallback; experimental and untested |
+| Built-in Java Runtime | Present; launcher/JavaFX path untested |
+| Aura Rust Runtime Host | Linux ARM64 fallback; untested |
+| Aura .NET Runtime Host | Linux ARM64 fallback; untested |
+| Aura QuickJS Runtime Host | Linux ARM64 fallback; untested |
+| Aura Wasm Runtime Host | Linux ARM64 fallback; untested |
+| Python Runtime Host | Unavailable |
+| Minecraft launch | Unavailable as a support claim until a real-device gate passes |

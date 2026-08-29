@@ -16,7 +16,8 @@ param(
     [string]$SigningProfile = '',
     [string]$SigningCertificate = '',
     [string]$SigningKeyAlias = '',
-    [string]$SigningPasswordReference = ''
+    [string]$SigningPasswordReference = '',
+    [ValidateSet('debug', 'release')][string]$SigningKind = 'release'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -427,6 +428,9 @@ if ($providedSigningValues.Count -ne 0 -and $providedSigningValues.Count -ne 5) 
     throw 'HarmonyOS signing inputs must be complete or all omitted'
 }
 $signedBuild = $providedSigningValues.Count -eq 5
+if (-not $signedBuild -and $SigningKind -ceq 'debug') {
+    throw 'Debug signing requires complete signing inputs'
+}
 $resolvedSigner = ''
 $resolvedSigningProfile = ''
 $resolvedSigningCertificate = ''
@@ -446,7 +450,11 @@ if (Test-IsPathWithin $resolvedOutput $resolvedProjectRoot $true) {
 }
 
 $artifactName = if ($signedBuild) {
-    "Aura-Launcher-$launcherVersion-$target.hap"
+    if ($SigningKind -ceq 'debug') {
+        "Aura-Launcher-$launcherVersion-$target-debug-signed.hap"
+    } else {
+        "Aura-Launcher-$launcherVersion-$target.hap"
+    }
 } else {
     "Aura-Launcher-$launcherVersion-$target-unsigned.hap"
 }
@@ -600,7 +608,11 @@ try {
         )
         [void](Invoke-ExternalTool -DisplayName 'Signer verification operation' `
             -ToolPath $resolvedSigner -ToolArguments $verifyArguments -RedactOutput)
-        $signingState = 'release-signed'
+        $signingState = if ($SigningKind -ceq 'debug') {
+            'debug-signed'
+        } else {
+            'release-signed'
+        }
     } else {
         Copy-RequiredFile $unsignedHaps[0].FullName $artifactStage
     }

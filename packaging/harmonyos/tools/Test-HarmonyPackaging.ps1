@@ -212,6 +212,7 @@ function Invoke-Build(
     [int]$VersionCode,
     [string]$OutputDirectory = '',
     [string]$SigningProfile = '',
+    [string]$SigningKind = 'release',
     [switch]$CompleteSigning
 ) {
     Set-BuildCaseEnvironment $Case
@@ -224,7 +225,8 @@ function Invoke-Build(
         '-HnpCli', $Case.HnpCli,
         '-Hvigor', $Case.Hvigor,
         '-OutputDirectory', $OutputDirectory,
-        '-VersionCode', [string]$VersionCode
+        '-VersionCode', [string]$VersionCode,
+        '-SigningKind', $SigningKind
     )
     if (-not [string]::IsNullOrWhiteSpace($SigningProfile)) {
         $arguments += @('-SigningProfile', $SigningProfile)
@@ -262,6 +264,7 @@ function Assert-BuildFails(
     [string]$JarName = 'Aura-Launcher-27.1-next.jar',
     [string]$ImplementationVersion = '27.1-next',
     [string]$SigningProfile = '',
+    [string]$SigningKind = 'release',
     [string]$OutputDirectory = '',
     [switch]$InjectHvigorFailure
 ) {
@@ -270,7 +273,7 @@ function Assert-BuildFails(
         $env:AURA_TEST_INJECT_HVIGOR_FAILURE = '1'
     }
     try {
-        $result = Invoke-Build $case $VersionCode $OutputDirectory $SigningProfile
+        $result = Invoke-Build $case $VersionCode $OutputDirectory $SigningProfile $SigningKind
     } finally {
         Remove-Item Env:AURA_TEST_INJECT_HVIGOR_FAILURE -ErrorAction SilentlyContinue
     }
@@ -416,6 +419,27 @@ function Assert-SignedBuild() {
     )
 }
 
+function Assert-DebugSignedBuild() {
+    $case = New-BuildCase 'debug-signed-success'
+    $result = Invoke-Build $case 271001 -SigningKind 'debug' -CompleteSigning
+    Assert-Condition ($result.ExitCode -eq 0) "Debug-signed build failed: $($result.Output)"
+    $artifact = Join-Path $case.Output `
+        'Aura-Launcher-27.1-next-harmonyos-arm64-debug-signed.hap'
+    $evidencePath = Join-Path $case.Output `
+        'Aura-Launcher-27.1-next-harmonyos-arm64-evidence.json'
+    Assert-Condition (Test-Path -LiteralPath $artifact -PathType Leaf) `
+        'Debug-signed HAP is missing'
+    Assert-Condition (-not (Test-Path -LiteralPath `
+            (Join-Path $case.Output 'Aura-Launcher-27.1-next-harmonyos-arm64.hap'))) `
+        'Debug signing must not publish a release filename'
+    $evidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+    Assert-Condition ($evidence.signingState -ceq 'debug-signed') `
+        'Debug-signed evidence state is wrong'
+    Assert-EvidenceHasNoMatch $evidencePath @(
+        'secret://harmony/aura', 'aura-release', $case.Root, $case.Signer
+    )
+}
+
 Assert-Condition (Test-Path -LiteralPath $buildScript -PathType Leaf) `
     "HarmonyOS package builder is missing: $buildScript"
 Assert-Condition (Test-Path -LiteralPath $evidenceSchema -PathType Leaf) `
@@ -433,6 +457,8 @@ try {
         -ImplementationVersion '27.1-next-next' -Expected 'Implementation-Version')
     [void](Assert-BuildFails -Name 'partial-signing-inputs' `
         -SigningProfile 'profile.p7b' -Expected 'signing inputs must be complete')
+    [void](Assert-BuildFails -Name 'debug-without-signing-inputs' `
+        -SigningKind 'debug' -Expected 'Debug signing requires complete signing inputs')
 
     $insideSource = Join-Path $projectRoot 'out/contract-test'
     $insideCase = New-BuildCase 'source-output-rejection'
@@ -443,6 +469,7 @@ try {
 
     Assert-UnsignedBuild
     Assert-SignedBuild
+    Assert-DebugSignedBuild
     Assert-NoPartialOutputAfterInjectedFailure
     Write-Host 'Aura HarmonyOS packaging contract tests passed.'
 } finally {

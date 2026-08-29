@@ -30,6 +30,8 @@ The packaging command requires all of the following to be provisioned outside th
 
 The signer adapter must expose separate `sign` and `verify` commands. The package builder does not
 download tools, resolve credentials, invoke the launcher JAR, or print signing arguments.
+Pass `-SigningKind debug` only with a complete signing set to produce an explicitly named
+`-debug-signed.hap`; the default signing kind is `release`.
 
 ## Unsigned evidence build
 
@@ -52,9 +54,32 @@ $output = 'C:\aura-output\harmonyos'
 
 An unsigned build emits an explicitly suffixed `.hap`, its SHA-256 sidecar, and schema-v1 evidence.
 Providing any signing input requires all five signing inputs; partial configuration fails without
-falling back to an unsigned result. A release filename is emitted only after separate signing and
-verification operations both succeed.
+falling back to an unsigned result. Debug signing always retains the `-debug-signed` adjective. A
+release filename is emitted only after separate signing and verification operations both succeed.
 
-All outputs remain experimental and untested. HNP/HAP binaries must not be committed or published,
-and no package may be promoted until a real ARM64 HarmonyOS PC passes every acceptance gate in the
+## Manual real-SDK workflow
+
+The `HarmonyOS Real SDK Evidence` workflow is manual-only. It runs on a separately administered
+runner carrying the `self-hosted`, `harmonyos-sdk`, and `arm64` labels and requires approval through
+the protected `harmonyos-packaging` environment. The environment supplies these public path
+variables:
+
+- `HARMONYOS_HNPCLI_PATH` and `HARMONYOS_HVIGOR_PATH`;
+- `HARMONYOS_SIGNER_PATH` for signed builds;
+- `HARMONYOS_DEBUG_SIGNING_PROFILE`, `HARMONYOS_DEBUG_SIGNING_CERTIFICATE`, and
+  `HARMONYOS_DEBUG_SIGNING_KEY_ALIAS`; and
+- the corresponding `HARMONYOS_RELEASE_SIGNING_*` variables for release evidence.
+
+Debug and release signing also require the protected
+`HARMONYOS_DEBUG_SIGNING_PASSWORD_REFERENCE` or
+`HARMONYOS_RELEASE_SIGNING_PASSWORD_REFERENCE` environment secret. These values are references to
+external secret-manager material, not embedded passwords or private keys.
+
+The workflow uploads only short-lived GitHub Actions evidence artifacts and deletes its runner-local
+output afterward. It never creates or updates a GitHub Release. The SDK, JDK, HNP tools, signing
+adapter, certificates, and keys must already be provisioned on the protected runner.
+
+All outputs remain experimental and untested. HNP/HAP binaries must not be committed or published as
+public Release or application-market assets, and no package may be promoted until a real ARM64
+HarmonyOS PC passes every acceptance gate in the
 [packaging design](../../docs/superpowers/specs/2026-08-29-aura-harmonyos-pc-packaging-design.md).

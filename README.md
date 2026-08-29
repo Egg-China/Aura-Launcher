@@ -32,6 +32,13 @@ Aura Launcher 是由 Egg-China 开发的跨平台 Minecraft 启动器。它保�
 - **新一代插件系统**：Aura `.npl` 插件使用 manifest schema v5，并接受权限、平台、Runtime 与 ABI 兼容性检查。
 - **清晰的安全边界**：Aura Launcher 使用独立数据目录；迁移仅复制明确允许的设置，不导入插件或插件安全状态。
 
+> [!TIP]
+> **HarmonyOS PC（ARM64，实验性）** 作为独立平台识别。HarmonyOS PC 使用 Linux 内核，因此
+> Linux ARM64 插件制品原则上可能运行；但 Aura Launcher、JavaFX、Minecraft 启动以及所有外部
+> Runtime Host 均未在 HarmonyOS PC 真机上测试。详见 [English](docs/PLATFORM.md)、
+> [简体中文](docs/PLATFORM_zh.md)、[繁體中文](docs/PLATFORM_zh_Hant.md)平台页与
+> [HarmonyOS 打包说明](packaging/harmonyos/README.md)。
+
 ### 获取与构建
 
 当前没有稳定版本可供下载。拥有仓库访问权限的测试者可从 [GitHub Actions](https://github.com/Egg-China/Aura-Launcher/actions/workflows/gradle.yml?query=branch%3Amain) 获取最新 Next 构建。
@@ -89,6 +96,15 @@ Aura Launcher is a cross-platform Minecraft launcher developed by Egg-China. It 
 - **Complete instance management**: Install, organize, and launch multiple Minecraft instances while managing game versions and mod loaders.
 - **Next-generation plugin system**: Aura `.npl` plugins use manifest schema v5 and are checked for permission, platform, Runtime, and ABI compatibility.
 - **Explicit security boundaries**: Aura Launcher uses its own data directory. Migration copies only allowlisted settings and never imports plugins or plugin security state.
+
+> [!TIP]
+> **HarmonyOS PC (ARM64, experimental)** is recognized as a separate platform. HarmonyOS PC uses a
+> Linux kernel, so Linux ARM64 plugin artifacts may work in principle; however, Aura Launcher,
+> JavaFX, Minecraft launching, and every external Runtime Host remain untested on real HarmonyOS PC
+> hardware. See the platform pages in [English](docs/PLATFORM.md),
+> [Simplified Chinese](docs/PLATFORM_zh.md), and
+> [Traditional Chinese](docs/PLATFORM_zh_Hant.md), plus the
+> [HarmonyOS packaging guide](packaging/harmonyos/README.md).
 
 ### Get and build
 

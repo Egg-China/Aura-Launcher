@@ -237,3 +237,22 @@
   </tbody>
 </table>
 <!-- #END COPY -->
+
+## HarmonyOS PC（ARM64，實驗性）
+
+HarmonyOS PC 使用 Linux 核心，因此 Linux ARM64 成品原則上可能運作，但這不代表已獲支援。Aura
+Launcher、JavaFX、Minecraft 啟動以及所有外部 Runtime Host 尚未在 HarmonyOS PC 實機上測試。
+HarmonyOS PC 除 ARM64 外的其他架構均不受支援。建置方式與實機驗收界線請見[實驗性封裝說明](../packaging/harmonyos/README.md)。
+
+| 能力 | HarmonyOS PC ARM64 狀態 |
+| --- | --- |
+| 插件平臺識別 | 內建為 `harmonyos-arm64` |
+| HarmonyOS 原生 NPL 選擇 | 優先精確目標；目前沒有公開原生成品 |
+| Linux ARM64 NPL 選擇 | 單向回退；實驗性且未經測試 |
+| 內建 Java Runtime | 已提供；啟動器/JavaFX 路徑未經測試 |
+| Aura Rust Runtime Host | Linux ARM64 回退；未經測試 |
+| Aura .NET Runtime Host | Linux ARM64 回退；未經測試 |
+| Aura QuickJS Runtime Host | Linux ARM64 回退；未經測試 |
+| Aura Wasm Runtime Host | Linux ARM64 回退；未經測試 |
+| Python Runtime Host | 無法使用 |
+| Minecraft 啟動 | 實機門檻通過前不作可用性聲明 |

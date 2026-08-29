@@ -3,12 +3,19 @@ Set-StrictMode -Version Latest
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $sourceEntrypoint = Join-Path $projectRoot 'hnp/bin/aura-launcher'
-$bash = @(
-    'C:\Program Files\Git\bin\bash.exe',
-    'C:\Program Files\Git\usr\bin\bash.exe'
-) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+$bashCandidates = if ($env:OS -ceq 'Windows_NT') {
+    @(
+        'C:\Program Files\Git\bin\bash.exe',
+        'C:\Program Files\Git\usr\bin\bash.exe'
+    )
+} else {
+    @('/usr/bin/bash', '/bin/bash')
+}
+$bash = $bashCandidates | Where-Object {
+    Test-Path -LiteralPath $_ -PathType Leaf
+} | Select-Object -First 1
 if ([string]::IsNullOrWhiteSpace($bash)) {
-    throw 'Git Bash is required to test the HarmonyOS shell entrypoint'
+    throw 'Bash is required to test the HarmonyOS shell entrypoint'
 }
 
 function Assert-Condition([bool]$Condition, [string]$Message) {
@@ -18,6 +25,9 @@ function Assert-Condition([bool]$Condition, [string]$Message) {
 }
 
 function Convert-ToBashPath([string]$Path) {
+    if ($env:OS -cne 'Windows_NT') {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
     $converted = & $bash -lc 'cygpath -u -- "$1"' aura-test $Path
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($converted)) {
         throw "Unable to convert test path for Git Bash: $Path"
