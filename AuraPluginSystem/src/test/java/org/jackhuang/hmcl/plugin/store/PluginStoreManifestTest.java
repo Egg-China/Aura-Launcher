@@ -361,6 +361,88 @@ public final class PluginStoreManifestTest {
         assertTrue(noMatch.getMessage().contains("linux-x64"), noMatch.getMessage());
     }
 
+    /// Prefers a native HarmonyOS artifact and otherwise falls back only to Linux ARM64.
+    @Test
+    public void selectHarmonyOsArtifactWithExactFirstFallback() throws IOException {
+        PluginStoreManifest.PluginVersionEntry linuxFirst = parseManifest(
+                "dev.hmclce.test.harmony-artifact-selection",
+                schemaFiveArtifactManifest(
+                        "dev.hmclce.test.harmony-artifact-selection",
+                        "\"pluginKind\": \"normal\",",
+                        """
+                                {"platform": "linux-arm64", "packageUrl": "https://example.test/linux.npl",
+                                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 41},
+                                {"platform": "harmonyos-arm64", "packageUrl": "https://example.test/harmony.npl",
+                                 "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "size": 59}
+                                """
+                )
+        ).getVersions().get(0);
+        PluginStoreManifest.PluginVersionEntry harmonyFirst = parseManifest(
+                "dev.hmclce.test.harmony-artifact-selection",
+                schemaFiveArtifactManifest(
+                        "dev.hmclce.test.harmony-artifact-selection",
+                        "\"pluginKind\": \"normal\",",
+                        """
+                                {"platform": "harmonyos-arm64", "packageUrl": "https://example.test/harmony.npl",
+                                 "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "size": 59},
+                                {"platform": "linux-arm64", "packageUrl": "https://example.test/linux.npl",
+                                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 41}
+                                """
+                )
+        ).getVersions().get(0);
+        PluginStoreManifest.PluginVersionEntry linuxOnly = parseManifest(
+                "dev.hmclce.test.harmony-artifact-selection",
+                schemaFiveArtifactManifest(
+                        "dev.hmclce.test.harmony-artifact-selection",
+                        "\"pluginKind\": \"normal\",",
+                        """
+                                {"platform": "linux-arm64", "packageUrl": "https://example.test/linux.npl",
+                                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 41}
+                                """
+                )
+        ).getVersions().get(0);
+
+        assertEquals("harmonyos-arm64", linuxFirst
+                .requireArtifact(PluginPlatformTarget.parse("harmonyos-arm64")).platform().getId());
+        assertEquals("harmonyos-arm64", harmonyFirst
+                .requireArtifact(PluginPlatformTarget.parse("harmonyos-arm64")).platform().getId());
+        assertEquals("linux-arm64", linuxOnly
+                .requireArtifact(PluginPlatformTarget.parse("harmonyos-arm64")).platform().getId());
+    }
+
+    /// Rejects reverse and cross-architecture artifact fallback.
+    @Test
+    public void rejectUnsupportedHarmonyOsArtifactFallback() throws IOException {
+        PluginStoreManifest.PluginVersionEntry harmonyOnly = parseManifest(
+                "dev.hmclce.test.harmony-artifact-rejection",
+                schemaFiveArtifactManifest(
+                        "dev.hmclce.test.harmony-artifact-rejection",
+                        "\"pluginKind\": \"normal\",",
+                        """
+                                {"platform": "harmonyos-arm64", "packageUrl": "https://example.test/harmony.npl",
+                                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 41}
+                                """
+                )
+        ).getVersions().get(0);
+        PluginStoreManifest.PluginVersionEntry linuxArm64Only = parseManifest(
+                "dev.hmclce.test.harmony-artifact-rejection",
+                schemaFiveArtifactManifest(
+                        "dev.hmclce.test.harmony-artifact-rejection",
+                        "\"pluginKind\": \"normal\",",
+                        """
+                                {"platform": "linux-arm64", "packageUrl": "https://example.test/linux.npl",
+                                 "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "size": 59}
+                                """
+                )
+        ).getVersions().get(0);
+
+        assertThrows(IOException.class,
+                () -> harmonyOnly.requireArtifact(PluginPlatformTarget.parse("linux-arm64")));
+        IOException crossArchitecture = assertThrows(IOException.class,
+                () -> linuxArm64Only.requireArtifact(PluginPlatformTarget.parse("harmonyos-x64")));
+        assertTrue(crossArchitecture.getMessage().contains("harmonyos-x64"), crossArchitecture.getMessage());
+    }
+
     /// Rejects duplicate artifact targets and architecture-independent targets instead of applying native fallback.
     @Test
     public void rejectAmbiguousPlatformArtifactMatrices() {

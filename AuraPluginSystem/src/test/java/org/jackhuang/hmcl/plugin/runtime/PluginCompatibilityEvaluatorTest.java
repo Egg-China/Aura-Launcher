@@ -288,6 +288,43 @@ public final class PluginCompatibilityEvaluatorTest {
         assertStatus(PluginCompatibilityStatus.COMPATIBLE, osOnlyResult);
     }
 
+    /// Applies Linux ARM64 compatibility to HarmonyOS ARM64 in one direction only.
+    @Test
+    public void evaluateHarmonyOsPlatformCompatibilityOneWay() {
+        PluginCompatibilityEvaluator harmonyEvaluator = new PluginCompatibilityEvaluator(
+                new RuntimeProviderRegistry(), PluginPlatformTarget.parse("harmonyos-arm64"));
+        PluginCompatibilityRequirements linuxArm64 = new PluginCompatibilityRequirements(
+                5,
+                "*",
+                PluginRuntimeTypes.JAVA,
+                PluginAbi.ABI_1,
+                List.of(PluginPlatformTarget.parse("linux-arm64"))
+        );
+        PluginCompatibilityRequirements linuxX64 = new PluginCompatibilityRequirements(
+                5,
+                "*",
+                PluginRuntimeTypes.JAVA,
+                PluginAbi.ABI_1,
+                List.of(PluginPlatformTarget.parse("linux-x64"))
+        );
+        PluginCompatibilityEvaluator linuxEvaluator = new PluginCompatibilityEvaluator(
+                new RuntimeProviderRegistry(), PluginPlatformTarget.parse("linux-arm64"));
+        PluginCompatibilityRequirements harmonyArm64 = new PluginCompatibilityRequirements(
+                5,
+                "*",
+                PluginRuntimeTypes.JAVA,
+                PluginAbi.ABI_1,
+                List.of(PluginPlatformTarget.parse("harmonyos-arm64"))
+        );
+
+        assertStatus(PluginCompatibilityStatus.COMPATIBLE,
+                harmonyEvaluator.evaluate(linuxArm64, "27.1-next"));
+        assertStatus(PluginCompatibilityStatus.UNSUPPORTED_PLATFORM,
+                harmonyEvaluator.evaluate(linuxX64, "27.1-next"));
+        assertStatus(PluginCompatibilityStatus.UNSUPPORTED_PLATFORM,
+                linuxEvaluator.evaluate(harmonyArm64, "27.1-next"));
+    }
+
     /// Rejects a package when no provider is registered for its canonical runtime.
     @Test
     public void rejectMissingRuntimeProvider() {

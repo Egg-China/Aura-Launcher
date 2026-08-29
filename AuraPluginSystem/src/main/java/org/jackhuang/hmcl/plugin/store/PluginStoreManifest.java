@@ -528,7 +528,7 @@ public final class PluginStoreManifest {
             return size;
         }
 
-        /// Returns immutable exact platform artifacts in declaration order.
+        /// Returns immutable platform artifacts in declaration order.
         ///
         /// @return platform artifact matrix, or an empty list for a legacy single package
         public @Unmodifiable List<PluginStoreArtifact> getArtifacts() {
@@ -539,14 +539,15 @@ public final class PluginStoreManifest {
             return values.stream().map(Objects::requireNonNull).toList();
         }
 
-        /// Selects the package metadata for an exact operating-system and architecture target.
+        /// Selects package metadata for a host operating-system and architecture target.
         ///
         /// Legacy single-package entries produce an immutable compatibility view for the requested target.
-        /// Platform matrices never use operating-system-only or architecture translation fallback.
+        /// Platform matrices prefer an exact target. A HarmonyOS ARM64 host may use a Linux ARM64 artifact only
+        /// when the matrix has no exact HarmonyOS ARM64 artifact.
         ///
-        /// @param target exact host target
+        /// @param target host target
         /// @return matching platform artifact or the legacy package compatibility view
-        /// @throws IOException if a platform matrix has no exact target match
+        /// @throws IOException if a platform matrix has no compatible target match
         public PluginStoreArtifact requireArtifact(PluginPlatformTarget target) throws IOException {
             @Unmodifiable List<PluginStoreArtifact> matrix = getArtifacts();
             if (matrix.isEmpty()) {
@@ -558,7 +559,16 @@ public final class PluginStoreManifest {
                     return artifact;
                 }
             }
-            throw new IOException("No exact plugin artifact for " + target.getId()
+            boolean harmonyArm64Fallback = target.getId().equals("harmonyos-arm64");
+            if (harmonyArm64Fallback) {
+                for (PluginStoreArtifact artifact : matrix) {
+                    if (artifact.platform().getId().equals("linux-arm64")) {
+                        return artifact;
+                    }
+                }
+            }
+            throw new IOException("No compatible plugin artifact for " + target.getId()
+                    + (harmonyArm64Fallback ? "; compatible fallback tried: linux-arm64" : "")
                     + "; available targets: " + matrix.stream()
                     .map(artifact -> artifact.platform().getId())
                     .sorted()
