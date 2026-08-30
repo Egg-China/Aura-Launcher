@@ -46,6 +46,14 @@ public final class PatchTargetFixture implements PatchValueSink<String> {
         return values.length;
     }
 
+    /// Returns the implementation class name of one launcher-owned interface value.
+    ///
+    /// @param value launcher-owned interface value
+    /// @return implementation binary name
+    public String sinkType(PatchValueSink<String> value) {
+        return value.getClass().getName();
+    }
+
     /// Declares a native body that the safe Patch engine must reject.
     ///
     /// @return native value

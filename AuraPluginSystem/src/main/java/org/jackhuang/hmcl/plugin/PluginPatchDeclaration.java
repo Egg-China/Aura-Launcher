@@ -26,8 +26,9 @@ import java.util.regex.Pattern;
 
 /// One declarative method patch contributed by a schema-v5 plugin.
 ///
-/// These declarations define the schema-v5 patch contract. HMCL currently parses and validates them when the
-/// manifest loads, but the JVM-side engine that would apply their bytecode transformations is not implemented.
+/// These declarations define the schema-v5 Patch contract. Aura Launcher validates them when the manifest loads;
+/// an active launcher-owned Patch engine may register them only after instrumentation and lifecycle authorization
+/// are available.
 @NotNullByDefault
 public final class PluginPatchDeclaration {
     /// Pattern accepted for fully-qualified binary class names such as org.hmcl.core.GameLaunchService.

@@ -227,7 +227,7 @@ feat: enforce the launcher Patch target boundary
 - Consumes: `register(PluginArtifactIdentity, Set<String>, PluginPatchDeclaration, PluginPatchCallback)`.
 - Produces: idempotent `PluginPatchRegistration.close()`, immutable method snapshots, `PluginPatchDispatcher.enter(long, Object, Object[])`, and `finish(PluginPatchDispatchFrame, Object)`.
 
-- [ ] **Step 1: Write engine tests for order, replacement conflict, close, timeout, failure isolation, recursion, and type validation**
+- [x] **Step 1: Write engine tests for order, replacement conflict, close, timeout, failure isolation, recursion, and type validation**
 
 ```java
 @Test
@@ -243,13 +243,13 @@ public void composesBeforeAndAfterInDependencyWrapperOrder() throws Exception {
 
 Use a real executor and latches for timeout/cancellation. Assert the failed registration is skipped on the next call while a healthy neighbor still executes.
 
-- [ ] **Step 2: Run the engine test and confirm compilation fails for the absent engine**
+- [x] **Step 2: Run the engine test and confirm compilation fails for the absent engine**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.patch.PluginPatchEngineTest --rerun-tasks --no-daemon --console plain`
 
 Expected: FAIL at test compilation.
 
-- [ ] **Step 3: Implement copy-on-write plans and bounded callbacks**
+- [x] **Step 3: Implement copy-on-write plans and bounded callbacks**
 
 ```java
 private PluginPatchResult invokeBounded(RegistrationState registration,
@@ -272,13 +272,13 @@ private PluginPatchResult invokeBounded(RegistrationState registration,
 
 Publish immutable maps under the engine mutation lock. Generate one stable method ID per exact target/name/descriptor. Topologically order active registrations with canonical ID tie breaks; reverse only the `after` list. Reject a second active `replace` before publication.
 
-- [ ] **Step 4: Run engine tests repeatedly to expose races**
+- [x] **Step 4: Run engine tests repeatedly to expose races**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.patch.PluginPatchEngineTest --rerun-tasks --no-daemon --console plain`
 
 Run the same command three times. Expected: PASS each time with no leaked non-daemon worker.
 
-- [ ] **Step 5: Commit the language-neutral engine**
+- [x] **Step 5: Commit the language-neutral engine**
 
 ```text
 feat: add bounded deterministic Patch dispatch

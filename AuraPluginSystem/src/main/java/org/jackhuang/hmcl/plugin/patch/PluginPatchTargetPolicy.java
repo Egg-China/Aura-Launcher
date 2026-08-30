@@ -70,6 +70,13 @@ public final class PluginPatchTargetPolicy {
         this.loadedClassesSupplier = Objects.requireNonNull(loadedClassesSupplier, "loadedClassesSupplier");
     }
 
+    /// Returns the exact launcher class loader used for descriptor type identity.
+    ///
+    /// @return launcher class loader
+    ClassLoader launcherClassLoader() {
+        return launcherClassLoader;
+    }
+
     /// Resolves one declaration only when its class, loader, code source, resource, and method body are safe.
     ///
     /// @param method unresolved Patch method identity
