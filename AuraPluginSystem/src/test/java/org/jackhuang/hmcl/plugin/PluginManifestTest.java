@@ -586,6 +586,37 @@ public final class PluginManifestTest {
         assertThrows(UnsupportedOperationException.class, () -> noArguments.getParameters().add("int"));
     }
 
+    /// Accepts every canonical Java parameter form supported by the schema-v5 Patch identity grammar.
+    @Test
+    public void acceptCanonicalPatchParameterNames() {
+        for (String parameter : List.of(
+                "boolean", "byte", "char", "short", "int", "long", "float", "double",
+                "java.lang.String", "java.util.Map$Entry", "int[]", "java.lang.String[][]")) {
+            assertDoesNotThrow(() -> new PluginPatchDeclaration(
+                    "org.jackhuang.hmcl.Launcher",
+                    "launch",
+                    PluginPatchDeclaration.PatchType.BEFORE,
+                    List.of(parameter)
+            ), parameter);
+        }
+    }
+
+    /// Rejects ambiguous source syntax and JVM descriptor syntax from Patch overload identities.
+    @Test
+    public void rejectAmbiguousPatchParameterNames() {
+        for (String parameter : List.of(
+                "void", " java.lang.String", "java.lang.String ", "java/lang/String",
+                "Ljava/lang/String;", "[I", "java.util.List<java.lang.String>",
+                "java.util.Map.Entry", "int...", "java.lang.String[ ]", "[]", ".java.lang.String")) {
+            assertThrows(IllegalArgumentException.class, () -> new PluginPatchDeclaration(
+                    "org.jackhuang.hmcl.Launcher",
+                    "launch",
+                    PluginPatchDeclaration.PatchType.BEFORE,
+                    List.of(parameter)
+            ), parameter);
+        }
+    }
+
     /// Accepts Java binary names for nested classes as patch targets.
     @Test
     public void acceptNestedClassBinaryPatchTarget() {

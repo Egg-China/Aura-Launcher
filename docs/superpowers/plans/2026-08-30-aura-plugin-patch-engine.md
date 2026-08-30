@@ -35,7 +35,7 @@
 - Consumes: schema-v5 `PluginPatchDeclaration(target, method, type, parameters)`.
 - Produces: `PluginPatchMethod.from(PluginPatchDeclaration)`, `parameterDescriptor()`, `matches(String, String)`, and `withReturnDescriptor(String)`.
 
-- [ ] **Step 1: Write grammar tests that fail on the current blank-only parameter validation**
+- [x] **Step 1: Write grammar tests that fail on the current blank-only parameter validation**
 
 ```java
 @ParameterizedTest
@@ -57,13 +57,13 @@ public void rejectsAmbiguousPatchParameterNames(String parameter) {
 }
 ```
 
-- [ ] **Step 2: Run the focused manifest tests and confirm an invalid form is accepted**
+- [x] **Step 2: Run the focused manifest tests and confirm an invalid form is accepted**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.PluginManifestTest --rerun-tasks --no-daemon --console plain`
 
 Expected: FAIL because at least `void` or descriptor syntax passes current validation.
 
-- [ ] **Step 3: Implement exact Java-name validation and descriptor conversion**
+- [x] **Step 3: Implement exact Java-name validation and descriptor conversion**
 
 ```java
 public static PluginPatchMethod from(PluginPatchDeclaration declaration) {
@@ -77,13 +77,13 @@ public static PluginPatchMethod from(PluginPatchDeclaration declaration) {
 
 Use a full-match pattern for primitives or binary names followed by zero or more `[]` suffixes. Reject `void`, whitespace, `/`, descriptors, generic punctuation, source-only nested spelling, and a trailing or empty array element.
 
-- [ ] **Step 4: Run focused tests and checkstyle**
+- [x] **Step 4: Run focused tests and checkstyle**
 
 Run: `./gradlew.bat :AuraLauncher:test :AuraLauncher:checkstylePluginMain :AuraLauncher:checkstylePluginTest --tests org.jackhuang.hmcl.plugin.PluginManifestTest --tests org.jackhuang.hmcl.plugin.patch.PluginPatchMethodTest --rerun-tasks --no-daemon --console plain`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the independently usable grammar slice**
+- [x] **Step 5: Commit the independently usable grammar slice**
 
 ```text
 feat: validate Patch method parameter identities
