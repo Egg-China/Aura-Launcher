@@ -1,7 +1,13 @@
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$gradle = Join-Path $repositoryRoot 'gradlew.bat'
+. (Join-Path $PSScriptRoot 'gradle-wrapper.ps1')
+$isWindowsPlatform = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+    [System.Runtime.InteropServices.OSPlatform]::Windows
+)
+$gradle = Resolve-AuraGradleWrapper `
+    -RepositoryRoot $repositoryRoot `
+    -IsWindowsPlatform $isWindowsPlatform
 $generatedRoot = Join-Path $repositoryRoot 'AuraLauncher\build\generated\plugin-trust\aura-plugin-root.json'
 $temporary = $null
 $gradleHome = $null

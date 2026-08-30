@@ -32,6 +32,9 @@ Assert-Condition (-not ($gradleWorkflow + $releaseWorkflow).Contains(
     )) 'The public plugin root must come from a repository variable, not a secret.'
 
 Assert-Condition ($gradleWorkflow.Contains(
+        'pwsh -NoProfile -File ./tools/test-gradle-wrapper.ps1'
+    )) 'Java CI must test Gradle wrapper selection before trust-root profile tests.'
+Assert-Condition ($gradleWorkflow.Contains(
         'pwsh -NoProfile -File ./tools/test-plugin-trust-root.ps1'
     )) 'Java CI must run plugin trust-root profile tests.'
 Assert-Condition ($gradleWorkflow.Contains("AURA_PUBLIC_STORE_SMOKE: 'true'")) `

@@ -39,6 +39,8 @@ jobs:
         env:
           MICROSOFT_AUTH_ID: ${{ secrets.CLIENT_ID }}
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+      - name: Verify Gradle wrapper selection
+        run: pwsh -NoProfile -File ./tools/test-gradle-wrapper.ps1
       - name: Verify plugin trust-root profiles
         run: pwsh -NoProfile -File ./tools/test-plugin-trust-root.ps1
       - name: Verify public plugin Store
