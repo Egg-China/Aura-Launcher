@@ -34,6 +34,8 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -155,6 +157,84 @@ public final class PluginPatchEngineTest {
         assertEquals(0, callbacks.get());
         assertFalse(registration.isActive());
         assertTrue(registration.isClosed());
+    }
+
+    /// Cancels a callback queued before registration close so plugin code never starts afterward.
+    @Test
+    public void cancelQueuedCallbackWhenRegistrationCloses() throws Exception {
+        replaceExecutorWithSingleWorker();
+        ThreadPoolExecutor singleWorker = (ThreadPoolExecutor) callbackExecutor;
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        callbackExecutor.submit(() -> {
+            blockerStarted.countDown();
+            releaseBlocker.await();
+            return null;
+        });
+        assertTrue(blockerStarted.await(1, TimeUnit.SECONDS));
+        AtomicInteger callbacks = new AtomicInteger();
+        PluginPatchRegistration registration = register(
+                "dev.example.queued-close",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> {
+                    callbacks.incrementAndGet();
+                    return PluginPatchResult.unchanged();
+                }
+        );
+        ExecutorService targetExecutor = Executors.newSingleThreadExecutor();
+        try {
+            Future<@Nullable Object> dispatch = targetExecutor.submit(() ->
+                    dispatchJoin(registration.methodId(), new ArrayList<>(), "value", 4));
+            assertTrue(awaitQueueSize(singleWorker, 1, Duration.ofSeconds(1)));
+
+            registration.close();
+            releaseBlocker.countDown();
+
+            assertEquals("value4", dispatch.get(1, TimeUnit.SECONDS));
+            assertEquals(0, callbacks.get());
+        } finally {
+            releaseBlocker.countDown();
+            targetExecutor.shutdownNow();
+            assertTrue(targetExecutor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    /// Interrupts an already running callback promptly when its registration closes.
+    @Test
+    public void cancelRunningCallbackWhenRegistrationCloses() throws Exception {
+        replaceEngine(Duration.ofSeconds(5), Duration.ofSeconds(5));
+        CountDownLatch callbackStarted = new CountDownLatch(1);
+        CountDownLatch callbackInterrupted = new CountDownLatch(1);
+        PluginPatchRegistration registration = register(
+                "dev.example.running-close",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> {
+                    callbackStarted.countDown();
+                    try {
+                        new CountDownLatch(1).await();
+                    } catch (InterruptedException exception) {
+                        callbackInterrupted.countDown();
+                        throw exception;
+                    }
+                    return PluginPatchResult.unchanged();
+                }
+        );
+        ExecutorService targetExecutor = Executors.newSingleThreadExecutor();
+        try {
+            Future<@Nullable Object> dispatch = targetExecutor.submit(() ->
+                    dispatchJoin(registration.methodId(), new ArrayList<>(), "value", 4));
+            assertTrue(callbackStarted.await(1, TimeUnit.SECONDS));
+
+            registration.close();
+
+            assertTrue(callbackInterrupted.await(1, TimeUnit.SECONDS));
+            assertEquals("value4", dispatch.get(1, TimeUnit.SECONDS));
+        } finally {
+            targetExecutor.shutdownNow();
+            assertTrue(targetExecutor.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     /// Disables only a timed-out callback while a healthy neighbor continues now and on later dispatches.
@@ -425,6 +505,40 @@ public final class PluginPatchEngineTest {
     private void replaceEngine(Duration callbackTimeout, Duration aggregateTimeout) {
         closeRegistrations();
         engine = new PluginPatchEngine(targetPolicy, callbackExecutor, callbackTimeout, aggregateTimeout);
+    }
+
+    /// Replaces the callback executor and engine with one deterministic worker for queue-order assertions.
+    ///
+    /// @throws InterruptedException if old worker termination is interrupted
+    private void replaceExecutorWithSingleWorker() throws InterruptedException {
+        closeRegistrations();
+        callbackExecutor.shutdownNow();
+        assertTrue(callbackExecutor.awaitTermination(5, TimeUnit.SECONDS));
+        callbackExecutor = Executors.newFixedThreadPool(1);
+        engine = new PluginPatchEngine(
+                targetPolicy,
+                callbackExecutor,
+                CALLBACK_TIMEOUT,
+                AGGREGATE_TIMEOUT
+        );
+    }
+
+    /// Waits until a deterministic executor queue reaches the expected minimum size.
+    ///
+    /// @param executor observed executor
+    /// @param expectedSize expected minimum queue size
+    /// @param timeout maximum wait
+    /// @return whether the queue reached the expected size before the deadline
+    private static boolean awaitQueueSize(
+            ThreadPoolExecutor executor,
+            int expectedSize,
+            Duration timeout
+    ) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (executor.getQueue().size() < expectedSize && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        return executor.getQueue().size() >= expectedSize;
     }
 
     /// Closes every retained registration and clears test ownership.

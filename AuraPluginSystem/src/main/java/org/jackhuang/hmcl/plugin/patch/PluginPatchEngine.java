@@ -431,6 +431,9 @@ public final class PluginPatchEngine {
             disable(registration, PluginPatchFailure.Category.CALLBACK_EXCEPTION);
             return null;
         }
+        if (!registration.retainCallbackTask(future)) {
+            return null;
+        }
         try {
             @Nullable PluginPatchResult result = future.get(remainingNanos, TimeUnit.NANOSECONDS);
             if (result == null) {
@@ -458,6 +461,8 @@ public final class PluginPatchEngine {
                 disable(registration, PluginPatchFailure.Category.CALLBACK_EXCEPTION);
             }
             return null;
+        } finally {
+            registration.releaseCallbackTask(future);
         }
     }
 
@@ -476,7 +481,9 @@ public final class PluginPatchEngine {
         DispatchContext previous = DISPATCH_CONTEXT.get();
         DISPATCH_CONTEXT.set(callbackContext);
         try {
-            return registration.callback().invoke(invocation);
+            return registration.isActive()
+                    ? registration.callback().invoke(invocation)
+                    : null;
         } finally {
             DISPATCH_CONTEXT.set(previous);
         }

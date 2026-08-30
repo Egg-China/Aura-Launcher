@@ -21,8 +21,11 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Future;
 
 /// Idempotent ownership handle for one exact active Patch callback.
 @NotNullByDefault
@@ -56,6 +59,9 @@ public final class PluginPatchRegistration implements AutoCloseable {
 
     /// Stable failure category retained after callback disablement, or `null`.
     private @Nullable PluginPatchFailure.Category failureCategory;
+
+    /// Submitted callback tasks cancelled when this registration leaves the active state.
+    private final Set<Future<?>> callbackTasks = new HashSet<>();
 
     /// Creates one active registration owned by an engine.
     ///
@@ -157,16 +163,46 @@ public final class PluginPatchRegistration implements AutoCloseable {
         return callback;
     }
 
+    /// Retains one submitted callback task while this registration remains active.
+    ///
+    /// A task submitted concurrently with closure is cancelled before this method returns.
+    ///
+    /// @param task submitted callback task
+    /// @return whether the active registration retained the task
+    boolean retainCallbackTask(Future<?> task) {
+        Future<?> value = Objects.requireNonNull(task, "task");
+        synchronized (this) {
+            if (state == State.ACTIVE) {
+                callbackTasks.add(value);
+                return true;
+            }
+        }
+        value.cancel(true);
+        return false;
+    }
+
+    /// Releases one completed or cancelled callback task from registration ownership.
+    ///
+    /// @param task callback task no longer executing for this registration
+    synchronized void releaseCallbackTask(Future<?> task) {
+        callbackTasks.remove(Objects.requireNonNull(task, "task"));
+    }
+
     /// Atomically records one callback failure while the registration is active.
     ///
     /// @param category stable failure category
     /// @return whether this call changed active state
-    synchronized boolean markFailed(PluginPatchFailure.Category category) {
-        if (state != State.ACTIVE) {
-            return false;
+    boolean markFailed(PluginPatchFailure.Category category) {
+        @Unmodifiable List<Future<?>> tasks;
+        synchronized (this) {
+            if (state != State.ACTIVE) {
+                return false;
+            }
+            failureCategory = Objects.requireNonNull(category, "category");
+            state = State.FAILED;
+            tasks = drainCallbackTasks();
         }
-        failureCategory = Objects.requireNonNull(category, "category");
-        state = State.FAILED;
+        cancelCallbackTasks(tasks);
         return true;
     }
 
@@ -174,13 +210,32 @@ public final class PluginPatchRegistration implements AutoCloseable {
     @Override
     public void close() {
         boolean changed;
+        @Unmodifiable List<Future<?>> tasks;
         synchronized (this) {
             changed = state != State.CLOSED;
             state = State.CLOSED;
+            tasks = drainCallbackTasks();
         }
+        cancelCallbackTasks(tasks);
         if (changed) {
             engine.remove(this);
         }
+    }
+
+    /// Removes every retained callback task while this registration's monitor is held.
+    ///
+    /// @return immutable task snapshot for cancellation outside the monitor
+    private @Unmodifiable List<Future<?>> drainCallbackTasks() {
+        @Unmodifiable List<Future<?>> tasks = List.copyOf(callbackTasks);
+        callbackTasks.clear();
+        return tasks;
+    }
+
+    /// Cancels every callback task without waiting for plugin-controlled code to exit.
+    ///
+    /// @param tasks callback tasks owned by a completed state transition
+    private static void cancelCallbackTasks(@Unmodifiable List<Future<?>> tasks) {
+        tasks.forEach(task -> task.cancel(true));
     }
 
     /// Internal registration lifecycle states.

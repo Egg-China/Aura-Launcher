@@ -15,14 +15,20 @@
  */
 package org.jackhuang.hmcl.plugin.patch;
 
+import org.jackhuang.hmcl.plugin.PluginArtifactIdentity;
+import org.jackhuang.hmcl.plugin.PluginManager;
+import org.jackhuang.hmcl.plugin.PluginPatchDeclaration;
+import org.jackhuang.hmcl.plugin.PluginPermission;
 import org.jackhuang.hmcl.plugin.mixin.bootstrap.HmclMixinAgent;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.lang.instrument.Instrumentation;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 /// Opaque launcher-owned publication of the JVM Patch instrumentation service.
@@ -68,6 +74,52 @@ public final class PluginInstrumentation {
     /// @return current service, or empty when Patch instrumentation is unavailable
     public static Optional<PluginInstrumentation> current() {
         return Optional.ofNullable(CURRENT.get());
+    }
+
+    /// Registers one lifecycle-owned Java Patch callback through the exact Plugin Manager caller.
+    ///
+    /// The facade verifies the current exact-artifact permission snapshot and never exposes raw Instrumentation or
+    /// the process-wide engine. An unavailable premain service fails closed with a stable category.
+    ///
+    /// @param artifactIdentity exact owning plugin artifact
+    /// @param dependencyIds canonical dependency IDs used for ordering
+    /// @param permissions current exact-artifact permissions
+    /// @param declaration authoritative schema-v5 declaration
+    /// @param callback manager-scoped Java callback endpoint
+    /// @return active engine registration
+    /// @throws SecurityException if called by anything except the exact Plugin Manager class
+    /// @throws PluginPatchFailure if permission, instrumentation, target, or conflict validation fails
+    public static PluginPatchRegistration registerFromPluginManager(
+            PluginArtifactIdentity artifactIdentity,
+            Set<String> dependencyIds,
+            Set<PluginPermission> permissions,
+            PluginPatchDeclaration declaration,
+            PluginPatchCallback callback
+    ) throws PluginPatchFailure {
+        requirePluginManagerCaller();
+        PluginArtifactIdentity identity = Objects.requireNonNull(artifactIdentity, "artifactIdentity");
+        @Unmodifiable Set<String> dependencies = Set.copyOf(
+                Objects.requireNonNull(dependencyIds, "dependencyIds")
+        );
+        @Unmodifiable Set<PluginPermission> effectivePermissions = Set.copyOf(
+                Objects.requireNonNull(permissions, "permissions")
+        );
+        PluginPatchDeclaration declarationValue = Objects.requireNonNull(declaration, "declaration");
+        PluginPatchCallback callbackValue = Objects.requireNonNull(callback, "callback");
+        if (!effectivePermissions.contains(PluginPermission.LAUNCHER_PATCH)) {
+            throw new PluginPatchFailure(
+                    PluginPatchFailure.Category.PERMISSION_DENIED,
+                    "Current artifact permission does not authorize Patch registration"
+            );
+        }
+        @Nullable PluginInstrumentation service = CURRENT.get();
+        if (service == null) {
+            throw new PluginPatchFailure(
+                    PluginPatchFailure.Category.UNAVAILABLE_ENGINE,
+                    "Aura Patch instrumentation is unavailable"
+            );
+        }
+        return service.engine.register(identity, dependencies, declarationValue, callbackValue);
     }
 
     /// Installs and publishes the sole retransformation-capable Patch transformer for this process.
@@ -141,6 +193,20 @@ public final class PluginInstrumentation {
                 .getDeclaringClass());
         if (caller != HmclMixinAgent.class) {
             throw new SecurityException("Patch instrumentation publication is restricted to premain");
+        }
+    }
+
+    /// Requires the exact Plugin Manager as the immediate lifecycle registration caller.
+    ///
+    /// @throws SecurityException if the caller is not the Aura Plugin Manager class
+    private static void requirePluginManagerCaller() {
+        Class<?> caller = CALLER_WALKER.walk(frames -> frames
+                .skip(2)
+                .findFirst()
+                .orElseThrow(() -> new SecurityException("Patch registration caller is unavailable"))
+                .getDeclaringClass());
+        if (caller != PluginManager.class) {
+            throw new SecurityException("Patch registration is restricted to Plugin Manager lifecycle ownership");
         }
     }
 }

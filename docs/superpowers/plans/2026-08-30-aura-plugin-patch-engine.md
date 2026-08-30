@@ -359,7 +359,7 @@ feat: install the Aura Patch transformer
 - Consumes: enabled schema-v5 Java plugin declarations, exact artifact permissions, dependency IDs, class loader, and `Plugin.onPatch`.
 - Produces: automatic registration after enable, closure before disable/unload, leased callback execution under plugin TCCL, and observable declaration status.
 
-- [ ] **Step 1: Write lifecycle tests for enable registration, permission denial, disable restoration, unload class-loader release, and failed registration isolation**
+- [x] **Step 1: Write lifecycle tests for enable registration, permission denial, disable restoration, unload class-loader release, and failed registration isolation**
 
 ```java
 @Test
@@ -371,23 +371,23 @@ public void closesPatchRegistrationsBeforePluginDisableCallback() throws Excepti
 }
 ```
 
-- [ ] **Step 2: Run the lifecycle test and confirm the declaration never becomes active**
+- [x] **Step 2: Run the lifecycle test and confirm the declaration never becomes active**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.PluginManagerPatchLifecycleTest --rerun-tasks --no-daemon --console plain`
 
 Expected: FAIL on the active result or missing registration status.
 
-- [ ] **Step 3: Retain registrations in PluginContainer and wire manager enable/disable/unload**
+- [x] **Step 3: Retain registrations in PluginContainer and wire manager enable/disable/unload**
 
 Acquire a container callback lease per registration. The Java callback calls `runPluginCallback(container classLoader, () -> plugin.onPatch(invocation))`. Close every Patch registration before suspending capability sessions, calling `onDisable`, revoking handles, or requesting class-loader close. Registration failures update only the declaration diagnostic and do not disable the plugin.
 
-- [ ] **Step 4: Run lifecycle, Hook, permission, and recovery regressions**
+- [x] **Step 4: Run lifecycle, Hook, permission, and recovery regressions**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.PluginManagerPatchLifecycleTest --tests org.jackhuang.hmcl.plugin.PluginHookDispatcherTest --tests org.jackhuang.hmcl.plugin.PluginManagerExecutablePermissionTest --tests org.jackhuang.hmcl.plugin.PluginManagerRecoveryTest --rerun-tasks --no-daemon --console plain`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Java lifecycle integration**
+- [x] **Step 5: Commit Java lifecycle integration**
 
 ```text
 feat: activate Java plugin Patch declarations

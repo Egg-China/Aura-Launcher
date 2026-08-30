@@ -36,6 +36,10 @@ import org.jackhuang.hmcl.plugin.loader.JavaPluginLoader;
 import org.jackhuang.hmcl.plugin.loader.PluginLoader;
 import org.jackhuang.hmcl.plugin.loader.RuntimePluginLoader;
 import org.jackhuang.hmcl.plugin.mixin.bootstrap.PluginAgentSnapshot;
+import org.jackhuang.hmcl.plugin.patch.PluginInstrumentation;
+import org.jackhuang.hmcl.plugin.patch.PluginPatchCallback;
+import org.jackhuang.hmcl.plugin.patch.PluginPatchFailure;
+import org.jackhuang.hmcl.plugin.patch.PluginPatchRegistration;
 import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityEvaluator;
 import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityRequirements;
 import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityResult;
@@ -143,6 +147,8 @@ public final class PluginManager {
     private final RuntimeProviderRegistry runtimeProviders;
     /// Launcher-owned external Provider lifecycle and payload supervisor.
     private final RuntimeSupervisor runtimeSupervisor;
+    /// Restricted Java Patch registration boundary, injectable only for lifecycle verification.
+    private final JavaPatchRegistrar javaPatchRegistrar;
     /// Same-process guard protecting launcher-administrative entry points from ordinary plugin code.
     private final PluginAdministrativeGuard administrativeGuard;
     /// Startup snapshot that re-verifies certified receipts and applies authenticated revocations.
@@ -221,6 +227,21 @@ public final class PluginManager {
         this(localHome, true, null, PluginCompatibilityEvaluator.processWide(), startupStageReporter);
     }
 
+    /// Creates an isolated manager with an injected Java Patch registrar for lifecycle verification.
+    ///
+    /// @param localHome isolated HMCL home
+    /// @param javaPatchRegistrar restricted Patch registration boundary
+    PluginManager(Path localHome, JavaPatchRegistrar javaPatchRegistrar) {
+        this(
+                localHome,
+                true,
+                null,
+                PluginCompatibilityEvaluator.processWide(),
+                PluginManager::reportStartupStage,
+                javaPatchRegistrar
+        );
+    }
+
     /// Creates one manager with explicit construction, trust, and compatibility policies.
     ///
     /// @param localHome launcher-local home
@@ -256,8 +277,35 @@ public final class PluginManager {
             PluginCompatibilityEvaluator compatibilityEvaluator,
             BiConsumer<PluginKind, String> startupStageReporter
     ) {
+        this(
+                localHome,
+                trustConstructionStack,
+                explicitRuntimeTrustGuard,
+                compatibilityEvaluator,
+                startupStageReporter,
+                PluginManager::registerJavaPatch
+        );
+    }
+
+    /// Creates one manager with every runtime policy and Java Patch registration boundary supplied explicitly.
+    ///
+    /// @param localHome launcher-local home
+    /// @param trustConstructionStack whether to trust exact test-framework loaders on the construction stack
+    /// @param explicitRuntimeTrustGuard explicit proof-backed runtime gate, or `null` for the inactive gate
+    /// @param compatibilityEvaluator shared launcher-host compatibility policy
+    /// @param startupStageReporter exact plugin-kind and ID reporter
+    /// @param javaPatchRegistrar restricted Java Patch registration boundary
+    private PluginManager(
+            Path localHome,
+            boolean trustConstructionStack,
+            @Nullable PluginRuntimeTrustGuard explicitRuntimeTrustGuard,
+            PluginCompatibilityEvaluator compatibilityEvaluator,
+            BiConsumer<PluginKind, String> startupStageReporter,
+            JavaPatchRegistrar javaPatchRegistrar
+    ) {
         this.compatibilityEvaluator = compatibilityEvaluator;
         this.startupStageReporter = startupStageReporter;
+        this.javaPatchRegistrar = Objects.requireNonNull(javaPatchRegistrar, "javaPatchRegistrar");
         runtimeProviders = compatibilityEvaluator.getRuntimeProviders();
         runtimeSupervisor = new RuntimeSupervisor(runtimeProviders);
         administrativeGuard = new PluginAdministrativeGuard(trustConstructionStack);
@@ -349,6 +397,32 @@ public final class PluginManager {
         } else {
             StartupReporter.reportOrdinaryPlugin(pluginId);
         }
+    }
+
+    /// Registers one Java Patch through the caller-restricted process-wide instrumentation facade.
+    ///
+    /// @param artifactIdentity exact owning artifact
+    /// @param dependencyIds canonical dependency IDs used for ordering
+    /// @param permissions current exact-artifact permissions
+    /// @param declaration authoritative schema-v5 declaration
+    /// @param callback manager-scoped Java callback endpoint
+    /// @return manager-owned registration handle
+    /// @throws PluginPatchFailure if permission, instrumentation, target, or conflict validation fails
+    private static PluginContainer.PatchRegistrationHandle registerJavaPatch(
+            PluginArtifactIdentity artifactIdentity,
+            Set<String> dependencyIds,
+            Set<PluginPermission> permissions,
+            PluginPatchDeclaration declaration,
+            PluginPatchCallback callback
+    ) throws PluginPatchFailure {
+        PluginPatchRegistration registration = PluginInstrumentation.registerFromPluginManager(
+                artifactIdentity,
+                dependencyIds,
+                permissions,
+                declaration,
+                callback
+        );
+        return new EnginePatchRegistrationHandle(registration);
     }
 
     /// Strictly persists all plugin state, including the secret-free quarantine report.
@@ -1185,6 +1259,161 @@ public final class PluginManager {
         }
     }
 
+    /// Registers every schema-v5 built-in JVM Patch declaration after lifecycle enablement succeeds.
+    ///
+    /// Each declaration fails independently and retains one class-loader lease for the complete registration
+    /// lifetime. The callback acquires a second invocation lease and always runs under the plugin TCCL and
+    /// administrative callback guard.
+    ///
+    /// @param container enabled Java or Kotlin plugin container
+    private void activateJavaPatchDeclarations(PluginContainer container) {
+        PluginManifest manifest = container.getManifest();
+        if (manifest.getSchemaVersion() < 5
+                || isExternalRuntimePayload(manifest)
+                || !manifest.hasPatches()) {
+            return;
+        }
+        container.preparePatchDeclarations();
+        container.openPatchCallbackGate();
+        PluginArtifactIdentity artifactIdentity = PluginArtifactIdentity.of(
+                manifest,
+                container.getContext().getArtifactSha256()
+        );
+        @Unmodifiable Set<String> dependencyIds = manifest.getPluginDependencies().stream()
+                .map(PluginDependency::getId)
+                .collect(Collectors.toUnmodifiableSet());
+
+        for (PluginPatchDeclaration declaration : manifest.getPatches()) {
+            @Unmodifiable Set<PluginPermission> permissions =
+                    container.getContext().getGrantedPermissions();
+            if (!permissions.contains(PluginPermission.LAUNCHER_PATCH)) {
+                recordPatchRegistrationFailure(
+                        container,
+                        declaration,
+                        PluginPatchFailure.Category.PERMISSION_DENIED
+                );
+                continue;
+            }
+
+            @Nullable Runnable releaseRegistrationLease = null;
+            @Nullable PluginContainer.PatchRegistrationHandle registration = null;
+            try {
+                releaseRegistrationLease = container.acquirePatchLease();
+                registration = javaPatchRegistrar.register(
+                        artifactIdentity,
+                        dependencyIds,
+                        permissions,
+                        declaration,
+                        invocation -> invokeJavaPatchCallback(container, invocation)
+                );
+                container.retainPatchRegistration(
+                        declaration,
+                        registration,
+                        releaseRegistrationLease
+                );
+            } catch (PluginPatchFailure failure) {
+                closeRejectedPatchRegistration(registration, releaseRegistrationLease);
+                recordPatchRegistrationFailure(container, declaration, failure.category());
+            } catch (RuntimeException exception) {
+                closeRejectedPatchRegistration(registration, releaseRegistrationLease);
+                recordPatchRegistrationFailure(
+                        container,
+                        declaration,
+                        PluginPatchFailure.Category.TRANSFORM_FAILURE
+                );
+                LOG.warning("Aura plugin Patch registration failed unexpectedly: plugin="
+                        + manifest.getId()
+                        + ", target=" + declaration.getTarget()
+                        + ", method=" + declaration.getMethod()
+                        + ", type=" + declaration.getType(), exception);
+            }
+        }
+    }
+
+    /// Invokes one Java Patch callback only while its exact lifecycle generation remains admissible.
+    ///
+    /// @param container owning enabled plugin container
+    /// @param invocation immutable Patch invocation
+    /// @return plugin callback result
+    /// @throws Exception if lifecycle admission or plugin callback execution fails
+    private PluginPatchResult invokeJavaPatchCallback(
+            PluginContainer container,
+            PluginPatchInvocation invocation
+    ) throws Exception {
+        if (!container.acceptsPatchCallbacks()) {
+            throw lifecycleRevokedPatchFailure();
+        }
+        final Runnable releaseInvocationLease;
+        try {
+            releaseInvocationLease = container.acquirePatchLease();
+        } catch (IllegalStateException exception) {
+            throw new PluginPatchFailure(
+                    PluginPatchFailure.Category.LIFECYCLE_REVOKED,
+                    "Plugin lifecycle no longer admits Patch callbacks",
+                    exception
+            );
+        }
+        try {
+            if (!container.acceptsPatchCallbacks()) {
+                throw lifecycleRevokedPatchFailure();
+            }
+            return runPluginCallback(
+                    container.getContext().getClassLoader(),
+                    () -> container.getPlugin().onPatch(invocation)
+            );
+        } finally {
+            releaseInvocationLease.run();
+        }
+    }
+
+    /// Closes a registration that could not be retained and releases its lifetime lease.
+    ///
+    /// @param registration partially created registration, or `null`
+    /// @param releaseLease acquired lifetime lease release, or `null`
+    private static void closeRejectedPatchRegistration(
+            @Nullable PluginContainer.PatchRegistrationHandle registration,
+            @Nullable Runnable releaseLease
+    ) {
+        try {
+            if (registration != null) {
+                registration.close();
+            }
+        } finally {
+            if (releaseLease != null) {
+                releaseLease.run();
+            }
+        }
+    }
+
+    /// Records one redacted declaration-local registration failure.
+    ///
+    /// @param container owning plugin container
+    /// @param declaration failed declaration
+    /// @param category stable failure category
+    private static void recordPatchRegistrationFailure(
+            PluginContainer container,
+            PluginPatchDeclaration declaration,
+            PluginPatchFailure.Category category
+    ) {
+        container.failPatchDeclaration(declaration, category);
+        LOG.warning("Aura plugin Patch declaration unavailable: plugin="
+                + container.getManifest().getId()
+                + ", target=" + declaration.getTarget()
+                + ", method=" + declaration.getMethod()
+                + ", type=" + declaration.getType()
+                + ", failure=" + category);
+    }
+
+    /// Creates one stable lifecycle-revocation failure without plugin-controlled details.
+    ///
+    /// @return lifecycle-revoked Patch failure
+    private static PluginPatchFailure lifecycleRevokedPatchFailure() {
+        return new PluginPatchFailure(
+                PluginPatchFailure.Category.LIFECYCLE_REVOKED,
+                "Plugin lifecycle no longer admits Patch callbacks"
+        );
+    }
+
     /// Runs one lifecycle callback with administrative APIs denied and the exact plugin loader installed as TCCL.
     ///
     /// @param classLoader loader that owns the plugin lifecycle and resources
@@ -1731,6 +1960,7 @@ public final class PluginManager {
                 runtimeSupervisor.hostEnabled(pluginId);
             }
             container.setEnabled(true);
+            activateJavaPatchDeclarations(container);
             container.setRestartRequired(false);
             enabledStates.add(pluginId);
             setLoadedRuntimeStatus(container, PluginRuntimeStatus.ENABLED, null);
@@ -1738,6 +1968,8 @@ public final class PluginManager {
             visiting.remove(pluginId);
             return true;
         } catch (RuntimeException | Error exception) {
+            container.closePatchRegistrations();
+            container.setEnabled(false);
             container.suspendCapabilitySession();
             if (container.getManifest().getPluginKind() == PluginKind.RUNTIME_PROVIDER) {
                 runtimeSupervisor.hostDisabled(pluginId);
@@ -1853,6 +2085,7 @@ public final class PluginManager {
             }
             return;
         }
+        container.closePatchRegistrations();
         if (container.isEnabled()) {
             container.suspendCapabilitySession();
             try {
@@ -1943,6 +2176,7 @@ public final class PluginManager {
             disablePluginLocked(pluginId);
         }
 
+        container.closePatchRegistrations();
         container.closeCapabilitySession();
         container.revokeCapabilityTokens();
         if (container.getManifest().getPluginKind() == PluginKind.RUNTIME_PROVIDER) {
@@ -3992,6 +4226,64 @@ public final class PluginManager {
     public Path getPluginsDirectory() {
         administrativeGuard.checkTrustedCaller();
         return pluginsDirectory;
+    }
+
+    /// Restricted registration seam used by the production instrumentation facade and focused lifecycle tests.
+    @FunctionalInterface
+    @NotNullByDefault
+    interface JavaPatchRegistrar {
+        /// Registers one exact Java Patch declaration.
+        ///
+        /// @param artifactIdentity exact owning artifact
+        /// @param dependencyIds canonical dependency IDs used for ordering
+        /// @param permissions current exact-artifact permissions
+        /// @param declaration authoritative schema-v5 declaration
+        /// @param callback manager-scoped Java callback endpoint
+        /// @return active manager-owned registration handle
+        /// @throws PluginPatchFailure if registration validation fails
+        PluginContainer.PatchRegistrationHandle register(
+                PluginArtifactIdentity artifactIdentity,
+                Set<String> dependencyIds,
+                Set<PluginPermission> permissions,
+                PluginPatchDeclaration declaration,
+                PluginPatchCallback callback
+        ) throws PluginPatchFailure;
+    }
+
+    /// Adapts the public opaque engine registration to the manager-owned lifecycle handle boundary.
+    @NotNullByDefault
+    private static final class EnginePatchRegistrationHandle implements PluginContainer.PatchRegistrationHandle {
+        /// Opaque engine registration owned by this lifecycle adapter.
+        private final PluginPatchRegistration registration;
+
+        /// Creates one manager-owned adapter.
+        ///
+        /// @param registration active engine registration
+        private EnginePatchRegistrationHandle(PluginPatchRegistration registration) {
+            this.registration = Objects.requireNonNull(registration, "registration");
+        }
+
+        /// Returns whether the engine still admits this callback.
+        ///
+        /// @return active state
+        @Override
+        public boolean isActive() {
+            return registration.isActive();
+        }
+
+        /// Returns the stable engine callback failure category.
+        ///
+        /// @return failure category, or `null`
+        @Override
+        public @Nullable PluginPatchFailure.Category failureCategory() {
+            return registration.failureCategory();
+        }
+
+        /// Closes the engine registration idempotently.
+        @Override
+        public void close() {
+            registration.close();
+        }
     }
 
     /// Immutable exact snapshot of one loaded plugin lifecycle.
