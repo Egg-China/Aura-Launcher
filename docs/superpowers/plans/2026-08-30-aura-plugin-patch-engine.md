@@ -157,7 +157,7 @@ feat: expose the Java Patch callback contract
 - Consumes: `PluginPatchMethod`, launcher class loader, expected launcher code source, optional loaded class, and class resource bytes.
 - Produces: `PluginPatchTargetPolicy.resolve(PluginPatchMethod)` returning the exact full JVM descriptor, access flags, loaded class when present, and validated original bytecode.
 
-- [ ] **Step 1: Write policy tests for namespace, loader, code source, method body, and overload rejection**
+- [x] **Step 1: Write policy tests for namespace, loader, code source, method body, and overload rejection**
 
 ```java
 @Test
@@ -177,13 +177,13 @@ public void resolvesExactOverloadWithoutLoadingPluginCode() throws Exception {
 
 Cover bootstrap and plugin loaders, a different code source, `abstract`, `native`, missing overloads, `$$` generated names, and legal synthetic/bridge methods.
 
-- [ ] **Step 2: Run the target-policy test and confirm the absent policy fails test compilation**
+- [x] **Step 2: Run the target-policy test and confirm the absent policy fails test compilation**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.patch.PluginPatchTargetPolicyTest --rerun-tasks --no-daemon --console plain`
 
 Expected: FAIL because policy and target types do not exist.
 
-- [ ] **Step 3: Resolve target resources with ASM without initializing the target class**
+- [x] **Step 3: Resolve target resources with ASM without initializing the target class**
 
 ```java
 ClassReader reader = new ClassReader(classBytes);
@@ -201,13 +201,13 @@ reader.accept(new ClassVisitor(Opcodes.ASM9) {
 
 Enforce system-loader identity and normalized code-source equality for loaded classes. For unloaded classes, require a launcher resource URL rooted at the expected directory or JAR.
 
-- [ ] **Step 4: Run policy and verifier-focused tests**
+- [x] **Step 4: Run policy and verifier-focused tests**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.patch.PluginPatchTargetPolicyTest --rerun-tasks --no-daemon --console plain`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the target boundary**
+- [x] **Step 5: Commit the target boundary**
 
 ```text
 feat: enforce the launcher Patch target boundary
