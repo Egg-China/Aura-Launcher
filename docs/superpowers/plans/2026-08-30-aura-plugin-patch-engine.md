@@ -298,7 +298,7 @@ feat: add bounded deterministic Patch dispatch
 - Consumes: engine method plans and JVM-provided pre-Patch class bytes.
 - Produces: one `ClassFileTransformer` registered with `canRetransform=true`; transformed methods call `PluginPatchDispatcher.enter` and `finish` without plugin-class constant-pool references.
 
-- [ ] **Step 1: Write bytecode tests covering receiver/static methods, primitives, references, arrays, wide locals, void, and exceptions**
+- [x] **Step 1: Write bytecode tests covering receiver/static methods, primitives, references, arrays, wide locals, void, and exceptions**
 
 ```java
 @Test
@@ -313,17 +313,17 @@ public void transformsWideStaticMethodAndKeepsOriginalExceptionFlow() throws Exc
 
 Inspect constant-pool class references and assert none use a test plugin package. Run ASM `CheckClassAdapter.verify` and define transformed bytes in a child verifier loader.
 
-- [ ] **Step 2: Run transformer and agent tests and confirm missing transformation or manifest flag failures**
+- [x] **Step 2: Run transformer and agent tests and confirm missing transformation or manifest flag failures**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.patch.PluginPatchTransformerTest --tests org.jackhuang.hmcl.plugin.mixin.bootstrap.HmclMixinAgentTest --rerun-tasks --no-daemon --console plain`
 
 Expected: FAIL because the transformer is absent and `Can-Retransform-Classes` is false.
 
-- [ ] **Step 3: Implement ASM advice and safe frame computation**
+- [x] **Step 3: Implement ASM advice and safe frame computation**
 
 At method entry, box receiver and parameters into an `Object[]`, call `enter`, store the frame in a new local, write validated replacement arguments back to original locals, and branch to a validated replacement return when requested. Rewrite only normal return opcodes to call `finish`; leave `ATHROW` and exception tables unchanged. Use `ClassWriter.COMPUTE_FRAMES | COMPUTE_MAXS` with a system-loader hierarchy resolver that refuses plugin artifact resources.
 
-- [ ] **Step 4: Publish Instrumentation after any Mixin transformer and enable retransformation metadata**
+- [x] **Step 4: Publish Instrumentation after any Mixin transformer and enable retransformation metadata**
 
 ```kotlin
 manifest.attributes(
@@ -335,13 +335,13 @@ manifest.attributes(
 
 Install the Patch transformer even when there are zero Mixin configurations. Agent disablement, initialization failure, or unsupported retransformation leaves `PluginInstrumentation.current()` empty.
 
-- [ ] **Step 5: Run transformation, agent, and Shadow manifest tests**
+- [x] **Step 5: Run transformation, agent, and Shadow manifest tests**
 
 Run: `./gradlew.bat :AuraLauncher:test :AuraLauncher:shadowJar --tests org.jackhuang.hmcl.plugin.patch.PluginPatchTransformerTest --tests org.jackhuang.hmcl.plugin.mixin.bootstrap.HmclMixinAgentTest --rerun-tasks --no-daemon --console plain`
 
 Inspect: `META-INF/MANIFEST.MF` contains the unchanged premain and `Can-Retransform-Classes: true`.
 
-- [ ] **Step 6: Commit the transformer and Agent publication**
+- [x] **Step 6: Commit the transformer and Agent publication**
 
 ```text
 feat: install the Aura Patch transformer

@@ -27,6 +27,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
 import java.nio.charset.StandardCharsets;
+import java.security.ProtectionDomain;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -213,6 +214,18 @@ public final class PluginPatchEngine {
         synchronized (mutationLock) {
             return targetsById.get(methodId);
         }
+    }
+
+    /// Returns whether a transformation request carries the exact launcher definition identity.
+    ///
+    /// @param loader defining class loader, or `null`
+    /// @param protectionDomain defining protection domain, or `null`
+    /// @return whether the definition is launcher-owned
+    boolean ownsDefinition(
+            @Nullable ClassLoader loader,
+            @Nullable ProtectionDomain protectionDomain
+    ) {
+        return targetPolicy.ownsDefinition(loader, protectionDomain);
     }
 
     /// Removes one closed or failed registration and publishes the next immutable plan.

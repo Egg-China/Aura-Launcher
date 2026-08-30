@@ -30,6 +30,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.CodeSource;
+import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -75,6 +76,20 @@ public final class PluginPatchTargetPolicy {
     /// @return launcher class loader
     ClassLoader launcherClassLoader() {
         return launcherClassLoader;
+    }
+
+    /// Returns whether a JVM transformation request belongs to the exact launcher loader and code source.
+    ///
+    /// @param loader defining class loader, or `null` for bootstrap classes
+    /// @param protectionDomain defining protection domain, or `null`
+    /// @return whether the definition belongs to this launcher
+    boolean ownsDefinition(
+            @Nullable ClassLoader loader,
+            @Nullable ProtectionDomain protectionDomain
+    ) {
+        return loader == launcherClassLoader
+                && protectionDomain != null
+                && launcherCodeSource.equals(codeSource(protectionDomain));
     }
 
     /// Resolves one declaration only when its class, loader, code source, resource, and method body are safe.
@@ -255,7 +270,15 @@ public final class PluginPatchTargetPolicy {
     /// @param type inspected class
     /// @return normalized code-source URI, or `null`
     private static @Nullable URI codeSource(Class<?> type) {
-        @Nullable CodeSource source = type.getProtectionDomain().getCodeSource();
+        return codeSource(type.getProtectionDomain());
+    }
+
+    /// Returns one protection domain's normalized code-source location.
+    ///
+    /// @param protectionDomain inspected protection domain
+    /// @return normalized code-source URI, or `null`
+    private static @Nullable URI codeSource(ProtectionDomain protectionDomain) {
+        @Nullable CodeSource source = protectionDomain.getCodeSource();
         if (source == null || source.getLocation() == null) {
             return null;
         }

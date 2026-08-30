@@ -17,30 +17,39 @@ package org.jackhuang.hmcl.plugin.mixin.bootstrap;
 
 import org.jackhuang.hmcl.plugin.PluginArtifactIdentity;
 import org.jackhuang.hmcl.plugin.PluginMutationLock;
+import org.jackhuang.hmcl.plugin.patch.PluginInstrumentation;
+import org.jackhuang.hmcl.plugin.patch.PluginPatchTransformer;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,6 +57,90 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /// Verifies fail-closed premain behavior that keeps the launcher process alive.
 @NotNullByDefault
 public final class HmclMixinAgentTest {
+    /// Rejects direct non-agent attempts to install or clear process-wide Patch instrumentation.
+    @Test
+    public void restrictPatchInstrumentationPublicationToPremainClass() {
+        InstrumentationProbe probe = instrumentationProbe(true, false);
+        try {
+            assertThrows(
+                    SecurityException.class,
+                    () -> PluginInstrumentation.installFromAgent(probe.instrumentation())
+            );
+            assertThrows(SecurityException.class, PluginInstrumentation::clearFromAgent);
+            assertTrue(PluginInstrumentation.current().isEmpty());
+            assertEquals(0, probe.addCalls().get());
+        } finally {
+            resetAgentState();
+        }
+    }
+
+    /// Requires JVM retransformation support before publishing the Patch instrumentation service.
+    @Test
+    public void requireRetransformationSupportBeforePatchPublication() {
+        InstrumentationProbe probe = instrumentationProbe(false, false);
+        try {
+            HmclMixinAgent.installPatchInstrumentation(probe.instrumentation());
+
+            assertTrue(PluginInstrumentation.current().isEmpty());
+            assertEquals(0, probe.addCalls().get());
+        } finally {
+            resetAgentState();
+        }
+    }
+
+    /// Installs exactly one Patch transformer with JVM retransformation enabled.
+    @Test
+    public void installPatchTransformerWithRetransformation() {
+        InstrumentationProbe probe = instrumentationProbe(true, false);
+        try {
+            HmclMixinAgent.installPatchInstrumentation(probe.instrumentation());
+
+            assertTrue(PluginInstrumentation.current().isPresent());
+            assertEquals(1, probe.addCalls().get());
+            assertTrue(probe.canRetransform().get());
+            assertInstanceOf(PluginPatchTransformer.class, probe.transformer().get());
+        } finally {
+            resetAgentState();
+        }
+    }
+
+    /// Installs Patch instrumentation during premain even when no plugin declares a Mixin configuration.
+    ///
+    /// @param temporaryDirectory empty launcher-local home
+    @Test
+    public void installPatchTransformerWithoutMixinConfigurations(@TempDir Path temporaryDirectory) {
+        InstrumentationProbe probe = instrumentationProbe(true, false);
+        System.setProperty("hmcl.dir", temporaryDirectory.toString());
+        try {
+            HmclMixinAgent.premain(null, probe.instrumentation());
+
+            assertTrue(PluginInstrumentation.current().isPresent());
+            assertEquals(1, probe.addCalls().get());
+            assertTrue(probe.canRetransform().get());
+            assertTrue(PluginAgentSnapshot.current().getActiveArtifacts().isEmpty());
+        } finally {
+            resetAgentState();
+        }
+    }
+
+    /// Leaves Patch instrumentation unpublished when transformer installation fails.
+    ///
+    /// @param temporaryDirectory empty launcher-local home
+    @Test
+    public void leavePatchInstrumentationEmptyAfterInstallationFailure(@TempDir Path temporaryDirectory) {
+        InstrumentationProbe probe = instrumentationProbe(true, true);
+        System.setProperty("hmcl.dir", temporaryDirectory.toString());
+        try {
+            assertDoesNotThrow(() -> HmclMixinAgent.premain(null, probe.instrumentation()));
+
+            assertTrue(PluginInstrumentation.current().isEmpty());
+            assertEquals(1, probe.addCalls().get());
+            assertEquals("true", System.getProperty(HmclMixinBootstrap.DISABLE_PROPERTY));
+        } finally {
+            resetAgentState();
+        }
+    }
+
     /// Clears exact authorization and disables further Mixin relaunch after initialization failure.
     @Test
     public void failClosedAfterInitializationFailure() {
@@ -196,6 +289,56 @@ public final class HmclMixinAgentTest {
         );
     }
 
+    /// Creates a strict Instrumentation proxy for Patch transformer publication tests.
+    ///
+    /// @param retransformSupported whether the JVM reports retransformation support
+    /// @param failInstallation whether `addTransformer` must fail
+    /// @return instrumentation proxy and observable calls
+    private static InstrumentationProbe instrumentationProbe(
+            boolean retransformSupported,
+            boolean failInstallation
+    ) {
+        AtomicReference<@Nullable ClassFileTransformer> transformer = new AtomicReference<>();
+        AtomicReference<Boolean> canRetransform = new AtomicReference<>(false);
+        AtomicInteger addCalls = new AtomicInteger();
+        AtomicInteger removeCalls = new AtomicInteger();
+        InvocationHandler handler = (
+                Object proxy,
+                Method method,
+                Object @Nullable [] arguments
+        ) -> switch (method.getName()) {
+            case "isRetransformClassesSupported" -> retransformSupported;
+            case "addTransformer" -> {
+                addCalls.incrementAndGet();
+                if (failInstallation) {
+                    throw new IllegalStateException("expected transformer installation failure");
+                }
+                Object[] values = Objects.requireNonNull(arguments, "addTransformer arguments");
+                transformer.set((ClassFileTransformer) values[0]);
+                canRetransform.set((Boolean) values[1]);
+                yield null;
+            }
+            case "removeTransformer" -> {
+                removeCalls.incrementAndGet();
+                yield true;
+            }
+            case "toString" -> "Patch instrumentation probe";
+            default -> throw new AssertionError("Unexpected Instrumentation call: " + method.getName());
+        };
+        Instrumentation instrumentation = (Instrumentation) Proxy.newProxyInstance(
+                HmclMixinAgentTest.class.getClassLoader(),
+                new Class<?>[]{Instrumentation.class},
+                handler
+        );
+        return new InstrumentationProbe(
+                instrumentation,
+                transformer,
+                canRetransform,
+                addCalls,
+                removeCalls
+        );
+    }
+
     /// Creates one deterministic JAR entry fixture.
     ///
     /// @param entryName archive entry name
@@ -232,5 +375,31 @@ public final class HmclMixinAgentTest {
         System.clearProperty(HmclMixinBootstrap.ACTIVE_PROPERTY);
         System.clearProperty(HmclMixinBootstrap.AGENT_ACTIVE_PROPERTY);
         System.clearProperty(HmclMixinBootstrap.DISABLE_PROPERTY);
+        System.clearProperty("hmcl.dir");
+    }
+
+    /// Clears published Patch state, Mixin state, and diagnostic properties after one test.
+    private static void resetAgentState() {
+        HmclMixinAgent.handleInitializationFailure(new IOException("test cleanup"));
+        clearProperties();
+        PluginAgentSnapshot.clear();
+        assertTrue(PluginInstrumentation.current().isEmpty());
+    }
+
+    /// Observable strict Instrumentation proxy state.
+    ///
+    /// @param instrumentation strict proxy
+    /// @param transformer installed transformer, or `null`
+    /// @param canRetransform installed retransformation flag
+    /// @param addCalls transformer add call count
+    /// @param removeCalls transformer removal call count
+    @NotNullByDefault
+    private record InstrumentationProbe(
+            Instrumentation instrumentation,
+            AtomicReference<@Nullable ClassFileTransformer> transformer,
+            AtomicReference<Boolean> canRetransform,
+            AtomicInteger addCalls,
+            AtomicInteger removeCalls
+    ) {
     }
 }

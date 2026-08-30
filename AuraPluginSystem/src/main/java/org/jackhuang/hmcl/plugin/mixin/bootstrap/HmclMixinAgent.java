@@ -16,6 +16,7 @@
 package org.jackhuang.hmcl.plugin.mixin.bootstrap;
 
 import org.jackhuang.hmcl.plugin.PluginMutationLock;
+import org.jackhuang.hmcl.plugin.patch.PluginInstrumentation;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -55,6 +56,7 @@ public final class HmclMixinAgent {
     /// @param instrumentation active JVM instrumentation handle
     public static void premain(@Nullable String agentArguments, Instrumentation instrumentation) {
         PluginAgentSnapshot.clear();
+        PluginInstrumentation.clearFromAgent();
         System.setProperty(HmclMixinBootstrap.AGENT_ACTIVE_PROPERTY, "true");
         if (Boolean.getBoolean(HmclMixinBootstrap.DISABLE_PROPERTY)) {
             System.clearProperty(HmclMixinBootstrap.ACTIVE_PROPERTY);
@@ -96,42 +98,66 @@ public final class HmclMixinAgent {
     private static void initializePluginMixins(Path localHome, Instrumentation instrumentation) throws IOException {
         HmclMixinBootstrap.AgentConfiguration configuration =
                 HmclMixinBootstrap.prepareAgentConfiguration(localHome);
-        if (configuration.mixinConfigs().isEmpty()) {
-            return;
-        }
-
-        configuration.verifyInstalledArtifacts();
-        appendPluginClassPath(configuration.classPathArtifacts(), instrumentation);
-        ClassLoader systemClassLoader = ClassLoader.getSystemClassLoader();
-        HmclMixinService.configure(systemClassLoader, instrumentation);
-
-        MixinBootstrap.init();
-        MixinEnvironment.getDefaultEnvironment().setSide(MixinEnvironment.Side.CLIENT);
-        Mixins.addConfigurations(configuration.mixinConfigs().toArray(String[]::new), null);
-
-        HmclMixinService service = (HmclMixinService) MixinService.getService();
-        IMixinTransformer transformer = service.createTransformer();
+        @Nullable ClassFileTransformer installedMixinTransformer = null;
         try {
-            enterDefaultPhase();
-        } catch (ReflectiveOperationException exception) {
-            throw new IOException("Unable to enter the default Mixin phase", exception);
-        }
-        configuration.verifyInstalledArtifacts();
-        instrumentation.addTransformer(new HmclClassFileTransformer(transformer), false);
-        PluginAgentSnapshot.publish(configuration.registrations());
+            if (!configuration.mixinConfigs().isEmpty()) {
+                configuration.verifyInstalledArtifacts();
+                appendPluginClassPath(configuration.classPathArtifacts(), instrumentation);
+                ClassLoader systemClassLoader = ClassLoader.getSystemClassLoader();
+                HmclMixinService.configure(systemClassLoader, instrumentation);
 
-        System.setProperty(
-                HmclMixinBootstrap.ACTIVE_PROPERTY,
-                String.join(",", configuration.activePluginIds())
-        );
-        report("Enabled " + configuration.mixinConfigs().size() + " Mixin configuration(s) from "
-                + configuration.activePluginIds().size() + " plugin(s)");
+                MixinBootstrap.init();
+                MixinEnvironment.getDefaultEnvironment().setSide(MixinEnvironment.Side.CLIENT);
+                Mixins.addConfigurations(configuration.mixinConfigs().toArray(String[]::new), null);
+
+                HmclMixinService service = (HmclMixinService) MixinService.getService();
+                IMixinTransformer transformer = service.createTransformer();
+                try {
+                    enterDefaultPhase();
+                } catch (ReflectiveOperationException exception) {
+                    throw new IOException("Unable to enter the default Mixin phase", exception);
+                }
+                configuration.verifyInstalledArtifacts();
+                installedMixinTransformer = new HmclClassFileTransformer(transformer);
+                instrumentation.addTransformer(installedMixinTransformer, false);
+            }
+
+            installPatchInstrumentation(instrumentation);
+            PluginAgentSnapshot.publish(configuration.registrations());
+
+            if (!configuration.mixinConfigs().isEmpty()) {
+                System.setProperty(
+                        HmclMixinBootstrap.ACTIVE_PROPERTY,
+                        String.join(",", configuration.activePluginIds())
+                );
+                report("Enabled " + configuration.mixinConfigs().size() + " Mixin configuration(s) from "
+                        + configuration.activePluginIds().size() + " plugin(s)");
+            }
+        } catch (IOException | RuntimeException | Error failure) {
+            if (installedMixinTransformer != null) {
+                try {
+                    instrumentation.removeTransformer(installedMixinTransformer);
+                } catch (RuntimeException removalFailure) {
+                    failure.addSuppressed(removalFailure);
+                }
+            }
+            PluginInstrumentation.clearFromAgent();
+            throw failure;
+        }
+    }
+
+    /// Installs the Patch transformer after any Mixin transformer without exposing Instrumentation to plugins.
+    ///
+    /// @param instrumentation active JVM instrumentation handle
+    static void installPatchInstrumentation(Instrumentation instrumentation) {
+        PluginInstrumentation.installFromAgent(instrumentation);
     }
 
     /// Fails closed without throwing from premain, so HMCL remains available for plugin management and removal.
     ///
     /// @param failure Agent initialization failure
     static void handleInitializationFailure(Throwable failure) {
+        PluginInstrumentation.clearFromAgent();
         PluginAgentSnapshot.clear();
         System.setProperty(HmclMixinBootstrap.DISABLE_PROPERTY, "true");
         System.clearProperty(HmclMixinBootstrap.ACTIVE_PROPERTY);

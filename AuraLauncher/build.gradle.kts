@@ -416,7 +416,7 @@ tasks.shadowJar {
         "Main-Class" to "org.jackhuang.hmcl.Main",
         "Premain-Class" to "org.jackhuang.hmcl.plugin.mixin.bootstrap.HmclMixinAgent",
         "Can-Redefine-Classes" to "false",
-        "Can-Retransform-Classes" to "false",
+        "Can-Retransform-Classes" to "true",
         "Multi-Release" to "true",
         "Add-Opens" to addOpens.joinToString(" "),
         "Enable-Native-Access" to "ALL-UNNAMED",
