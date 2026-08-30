@@ -17,7 +17,9 @@ package org.jackhuang.hmcl.plugin;
 
 import org.jetbrains.annotations.NotNullByDefault;
 
-/// Defines the lifecycle implemented by Java and Kotlin HMCL plugins.
+import java.util.Objects;
+
+/// Defines the lifecycle implemented by Java and Kotlin Aura Launcher plugins.
 @NotNullByDefault
 public interface Plugin {
     /// Receives immutable package metadata and launcher services after the plugin class is created.
@@ -41,6 +43,17 @@ public interface Plugin {
     /// @return transactional Hook result
     default PluginHookResult onHook(PluginHookEvent event) {
         return PluginHookResult.unchanged();
+    }
+
+    /// Handles one manifest-declared Patch callback.
+    ///
+    /// Existing plugins preserve the current invocation unless they explicitly override this method.
+    ///
+    /// @param invocation immutable invocation view
+    /// @return transactional Patch result
+    default PluginPatchResult onPatch(PluginPatchInvocation invocation) {
+        Objects.requireNonNull(invocation, "invocation");
+        return PluginPatchResult.unchanged();
     }
 
     /// Returns the plugin manifest associated with this instance.

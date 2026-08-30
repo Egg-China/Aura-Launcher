@@ -101,7 +101,7 @@ feat: validate Patch method parameter identities
 - Consumes: resolved target identity, callback type, invocation-local receiver/arguments/result.
 - Produces: binary-compatible `default PluginPatchResult onPatch(PluginPatchInvocation invocation)` and immutable result factories `unchanged()`, `arguments(List<Object>)`, and `returnValue(@Nullable Object)`.
 
-- [ ] **Step 1: Write tests for immutable inputs, null return values, action exclusivity, and the default callback**
+- [x] **Step 1: Write tests for immutable inputs, null return values, action exclusivity, and the default callback**
 
 ```java
 @Test
@@ -115,13 +115,13 @@ public void defaultPluginPatchCallbackPreservesInvocation() {
 }
 ```
 
-- [ ] **Step 2: Run the callback contract test and confirm compilation fails because the API is absent**
+- [x] **Step 2: Run the callback contract test and confirm compilation fails because the API is absent**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.PluginPatchCallbackContractTest --rerun-tasks --no-daemon --console plain`
 
 Expected: FAIL at test compilation with missing `PluginPatchInvocation` and `PluginPatchResult`.
 
-- [ ] **Step 3: Implement the immutable public API and default Plugin method**
+- [x] **Step 3: Implement the immutable public API and default Plugin method**
 
 ```java
 default PluginPatchResult onPatch(PluginPatchInvocation invocation) {
@@ -132,13 +132,13 @@ default PluginPatchResult onPatch(PluginPatchInvocation invocation) {
 
 The invocation exposes the declaration, callback type, nullable receiver, immutable arguments, and nullable current result. The result stores one `Action` and copies any argument list.
 
-- [ ] **Step 4: Run callback, manifest, and compatibility tests**
+- [x] **Step 4: Run callback, manifest, and compatibility tests**
 
 Run: `./gradlew.bat :AuraLauncher:test --tests org.jackhuang.hmcl.plugin.PluginPatchCallbackContractTest --tests org.jackhuang.hmcl.plugin.PluginManifestTest --tests org.jackhuang.hmcl.plugin.NextPluginRuntimeTest --rerun-tasks --no-daemon --console plain`
 
 Expected: PASS, including legacy Plugin implementations that do not override `onPatch`.
 
-- [ ] **Step 5: Commit the public callback contract**
+- [x] **Step 5: Commit the public callback contract**
 
 ```text
 feat: expose the Java Patch callback contract
