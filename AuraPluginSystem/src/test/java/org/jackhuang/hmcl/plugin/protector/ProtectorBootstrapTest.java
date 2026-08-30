@@ -57,6 +57,7 @@ import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -211,6 +212,56 @@ public final class ProtectorBootstrapTest {
         try (AutoCloseable security = (AutoCloseable) create.invoke(null)) {
             assertTrue((long) attributesPointer.invoke(security) != 0L);
             assertTrue((boolean) hasSecurityDescriptor.invoke(security));
+        }
+    }
+
+    /// Accepts and drains authenticated messages that a Windows child buffered before exiting.
+    ///
+    /// @throws Exception if pipe creation, fixture execution, or message decoding fails
+    @Test
+    @Timeout(10)
+    @EnabledOnOs(OS.WINDOWS)
+    public void windowsPipeAcceptsBufferedMessagesAfterChildExit() throws Exception {
+        String nonce = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        Class<?> serverType = Class.forName(
+                "org.jackhuang.hmcl.plugin.protector.ProtectorBootstrap$WindowsPipeServer"
+        );
+        Method open = serverType.getDeclaredMethod("open");
+        open.setAccessible(true);
+        Method descriptor = serverType.getDeclaredMethod("descriptor");
+        descriptor.setAccessible(true);
+        Method accept = serverType.getDeclaredMethod("accept", Process.class, Duration.class);
+        accept.setAccessible(true);
+
+        try (AutoCloseable server = (AutoCloseable) open.invoke(null)) {
+            List<String> command = new ArrayList<>(fixtureCommand());
+            command.add(ProtectorBootstrap.ENDPOINT_ARGUMENT);
+            command.add((String) descriptor.invoke(server));
+            command.add(ProtectorBootstrap.NONCE_ARGUMENT);
+            command.add(nonce);
+            command.add("normal");
+            Process child = new ProcessBuilder(command).start();
+            try {
+                assertTrue(child.waitFor(5, TimeUnit.SECONDS));
+                assertEquals(0, child.exitValue());
+
+                @Nullable Object accepted = accept.invoke(server, child, Duration.ofSeconds(1));
+                assertNotNull(accepted);
+                try (ProtectorBootstrap.LocalConnection connection =
+                             (ProtectorBootstrap.LocalConnection) accepted) {
+                    ProtectorProtocol protocol = new ProtectorProtocol(nonce);
+                    ProtectorMessage started = protocol.decode(Objects.requireNonNull(
+                            ProtectorProtocol.readLine(connection.input())
+                    ));
+                    ProtectorMessage stopped = protocol.decode(Objects.requireNonNull(
+                            ProtectorProtocol.readLine(connection.input())
+                    ));
+                    assertEquals(ProtectorMessage.Kind.STAGE, started.kind());
+                    assertEquals(ProtectorMessage.Kind.NORMAL_SHUTDOWN, stopped.kind());
+                }
+            } finally {
+                child.destroyForcibly();
+            }
         }
     }
 

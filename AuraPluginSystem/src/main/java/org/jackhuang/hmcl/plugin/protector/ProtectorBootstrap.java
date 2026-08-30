@@ -1191,10 +1191,11 @@ public final class ProtectorBootstrap {
                     return transferConnection();
                 }
                 int error = Native.getLastError();
-                if (error == Kernel32.ERROR_PIPE_CONNECTED) {
+                if (error == Kernel32.ERROR_PIPE_CONNECTED || error == Kernel32.ERROR_NO_DATA) {
+                    // A fast child may close after writing but before the parent polls; buffered bytes remain readable.
                     return transferConnection();
                 }
-                if (error != Kernel32.ERROR_PIPE_LISTENING && error != Kernel32.ERROR_NO_DATA) {
+                if (error != Kernel32.ERROR_PIPE_LISTENING) {
                     throw Kernel32.failure("Protector named-pipe connection failed", error);
                 }
                 if (!child.isAlive()) {
