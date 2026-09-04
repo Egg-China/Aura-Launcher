@@ -159,6 +159,175 @@ public final class PluginPatchEngineTest {
         assertTrue(registration.isClosed());
     }
 
+    /// Publishes the first live plan before retransformation and removes it before bytecode restoration.
+    @Test
+    public void publishPlanBeforeRetransformationAndRemoveBeforeRestoration() throws Exception {
+        List<Integer> liveMethodCounts = new ArrayList<>();
+        List<Class<?>> retransformedClasses = new ArrayList<>();
+        replaceEngine(targetClass -> {
+            retransformedClasses.add(targetClass);
+            liveMethodCounts.add(engine.snapshotMethods().size());
+        });
+
+        PluginPatchRegistration registration = register(
+                "dev.example.retransform-order",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> PluginPatchResult.unchanged()
+        );
+        registration.close();
+
+        assertEquals(List.of(PatchTargetFixture.class, PatchTargetFixture.class), retransformedClasses);
+        assertEquals(List.of(1, 0), liveMethodCounts);
+    }
+
+    /// Retransforms only for the first and last callback on one exact method.
+    @Test
+    public void avoidRetransformationForAdditionalCallbackOnExactMethod() throws Exception {
+        AtomicInteger retransforms = new AtomicInteger();
+        replaceEngine(targetClass -> retransforms.incrementAndGet());
+
+        PluginPatchRegistration before = register(
+                "dev.example.retransform-before",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> PluginPatchResult.unchanged()
+        );
+        PluginPatchRegistration after = register(
+                "dev.example.retransform-after",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.AFTER,
+                invocation -> PluginPatchResult.unchanged()
+        );
+
+        assertEquals(1, retransforms.get());
+        before.close();
+        assertEquals(1, retransforms.get());
+        after.close();
+        assertEquals(2, retransforms.get());
+    }
+
+    /// Retransforms a loaded class whenever another exact method gains or loses its first plan.
+    @Test
+    public void retransformSameClassForEachDistinctMethodPlan() throws Exception {
+        AtomicInteger retransforms = new AtomicInteger();
+        replaceEngine(targetClass -> retransforms.incrementAndGet());
+
+        PluginPatchRegistration primary = register(
+                "dev.example.retransform-primary",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> PluginPatchResult.unchanged()
+        );
+        PluginPatchRegistration overload = registerJoinOverload(
+                "dev.example.retransform-overload",
+                invocation -> PluginPatchResult.unchanged()
+        );
+
+        assertEquals(2, retransforms.get());
+        primary.close();
+        assertEquals(3, retransforms.get());
+        overload.close();
+        assertEquals(4, retransforms.get());
+    }
+
+    /// Rolls back publication and attempts bytecode restoration after registration retransformation fails.
+    @Test
+    public void rollBackRegistrationAfterRetransformationFailure() throws Exception {
+        AtomicInteger retransforms = new AtomicInteger();
+        List<Integer> liveMethodCounts = new ArrayList<>();
+        replaceEngine(targetClass -> {
+            int invocation = retransforms.incrementAndGet();
+            liveMethodCounts.add(engine.snapshotMethods().size());
+            if (invocation == 1) {
+                throw new PluginPatchFailure(
+                        PluginPatchFailure.Category.TRANSFORM_FAILURE,
+                        "expected registration failure"
+                );
+            }
+        });
+
+        PluginPatchFailure failure = assertThrows(PluginPatchFailure.class, () -> register(
+                "dev.example.retransform-failure",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> PluginPatchResult.unchanged()
+        ));
+
+        assertEquals(PluginPatchFailure.Category.TRANSFORM_FAILURE, failure.category());
+        assertEquals(List.of(1, 0), liveMethodCounts);
+        assertTrue(engine.snapshotMethods().isEmpty());
+
+        PluginPatchRegistration recovered = register(
+                "dev.example.retransform-recovered",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> PluginPatchResult.unchanged()
+        );
+        assertTrue(recovered.isActive());
+        assertEquals(3, retransforms.get());
+    }
+
+    /// Leaves stale transformed calls as pass-through operations when final bytecode restoration fails.
+    @Test
+    public void keepDispatcherFailOpenAfterRestorationFailure() throws Exception {
+        AtomicInteger retransforms = new AtomicInteger();
+        AtomicInteger callbacks = new AtomicInteger();
+        replaceEngine(targetClass -> {
+            if (retransforms.incrementAndGet() == 2) {
+                throw new PluginPatchFailure(
+                        PluginPatchFailure.Category.TRANSFORM_FAILURE,
+                        "expected restoration failure"
+                );
+            }
+        });
+        PluginPatchRegistration registration = register(
+                "dev.example.retransform-restore-failure",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> {
+                    callbacks.incrementAndGet();
+                    return PluginPatchResult.arguments(List.of("wrong", 9));
+                }
+        );
+        long methodId = registration.methodId();
+
+        registration.close();
+
+        assertEquals("value4", dispatchJoin(methodId, new ArrayList<>(), "value", 4));
+        assertEquals(0, callbacks.get());
+        assertTrue(engine.snapshotMethods().isEmpty());
+    }
+
+    /// Restores a target that was first defined after registration but before registration close.
+    @Test
+    public void restoreClassLoadedAfterRegistration() throws Exception {
+        AtomicReference<List<Class<?>>> loadedClasses = new AtomicReference<>(List.of());
+        targetPolicy = new PluginPatchTargetPolicy(PatchTargetFixture.class, loadedClasses::get);
+        AtomicInteger retransforms = new AtomicInteger();
+        engine = new PluginPatchEngine(
+                targetPolicy,
+                targetClass -> retransforms.incrementAndGet(),
+                callbackExecutor,
+                CALLBACK_TIMEOUT,
+                AGGREGATE_TIMEOUT
+        );
+
+        PluginPatchRegistration registration = register(
+                "dev.example.future-restore",
+                Set.of(),
+                PluginPatchDeclaration.PatchType.BEFORE,
+                invocation -> PluginPatchResult.unchanged()
+        );
+        assertEquals(0, retransforms.get());
+        loadedClasses.set(List.of(PatchTargetFixture.class));
+
+        registration.close();
+
+        assertEquals(1, retransforms.get());
+        assertTrue(engine.snapshotMethods().isEmpty());
+    }
+
     /// Cancels a callback queued before registration close so plugin code never starts afterward.
     @Test
     public void cancelQueuedCallbackWhenRegistrationCloses() throws Exception {
@@ -505,6 +674,20 @@ public final class PluginPatchEngineTest {
     private void replaceEngine(Duration callbackTimeout, Duration aggregateTimeout) {
         closeRegistrations();
         engine = new PluginPatchEngine(targetPolicy, callbackExecutor, callbackTimeout, aggregateTimeout);
+    }
+
+    /// Replaces the engine with one focused loaded-class retransformation boundary.
+    ///
+    /// @param classRetransformer loaded-class retransformation behavior
+    private void replaceEngine(ClassRetransformer classRetransformer) {
+        closeRegistrations();
+        engine = new PluginPatchEngine(
+                targetPolicy,
+                classRetransformer,
+                callbackExecutor,
+                CALLBACK_TIMEOUT,
+                AGGREGATE_TIMEOUT
+        );
     }
 
     /// Replaces the callback executor and engine with one deterministic worker for queue-order assertions.

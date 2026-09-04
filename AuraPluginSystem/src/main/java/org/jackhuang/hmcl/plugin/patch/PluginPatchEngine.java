@@ -86,6 +86,9 @@ public final class PluginPatchEngine {
     /// Validates launcher ownership and resolves exact bytecode descriptors.
     private final PluginPatchTargetPolicy targetPolicy;
 
+    /// Applies current immutable plans to already loaded launcher classes.
+    private final ClassRetransformer classRetransformer;
+
     /// Exact launcher loader used to preserve JVM reference type identity.
     private final ClassLoader launcherClassLoader;
 
@@ -119,9 +122,14 @@ public final class PluginPatchEngine {
     /// Creates a production engine with the Patch ABI v1 deadlines and shared daemon workers.
     ///
     /// @param targetPolicy launcher target policy
-    PluginPatchEngine(PluginPatchTargetPolicy targetPolicy) {
+    /// @param classRetransformer loaded-class retransformation boundary
+    PluginPatchEngine(
+            PluginPatchTargetPolicy targetPolicy,
+            ClassRetransformer classRetransformer
+    ) {
         this(
                 targetPolicy,
+                classRetransformer,
                 DEFAULT_EXECUTOR,
                 DEFAULT_CALLBACK_TIMEOUT,
                 DEFAULT_AGGREGATE_TIMEOUT
@@ -140,7 +148,26 @@ public final class PluginPatchEngine {
             Duration callbackTimeout,
             Duration aggregateTimeout
     ) {
+        this(targetPolicy, ignored -> {
+        }, callbackExecutor, callbackTimeout, aggregateTimeout);
+    }
+
+    /// Creates an engine with injectable retransformation, workers, and deadlines for focused verification.
+    ///
+    /// @param targetPolicy launcher target policy
+    /// @param classRetransformer loaded-class retransformation boundary
+    /// @param callbackExecutor callback executor
+    /// @param callbackTimeout positive per-callback timeout
+    /// @param aggregateTimeout positive aggregate dispatch timeout
+    PluginPatchEngine(
+            PluginPatchTargetPolicy targetPolicy,
+            ClassRetransformer classRetransformer,
+            ExecutorService callbackExecutor,
+            Duration callbackTimeout,
+            Duration aggregateTimeout
+    ) {
         this.targetPolicy = Objects.requireNonNull(targetPolicy, "targetPolicy");
+        this.classRetransformer = Objects.requireNonNull(classRetransformer, "classRetransformer");
         launcherClassLoader = targetPolicy.launcherClassLoader();
         this.callbackExecutor = Objects.requireNonNull(callbackExecutor, "callbackExecutor");
         callbackTimeoutNanos = positiveNanos(callbackTimeout, "callback timeout");
@@ -154,7 +181,7 @@ public final class PluginPatchEngine {
     /// @param declaration authoritative schema-v5 declaration
     /// @param callback runtime-neutral callback endpoint
     /// @return active idempotent registration
-    /// @throws PluginPatchFailure if target validation or replacement conflict prevents registration
+    /// @throws PluginPatchFailure if target validation, replacement conflict, or loaded-class retransformation fails
     public PluginPatchRegistration register(
             PluginArtifactIdentity artifactIdentity,
             Set<String> dependencyIds,
@@ -188,11 +215,30 @@ public final class PluginPatchEngine {
             List<PluginPatchRegistration> candidate = new ArrayList<>(current);
             candidate.add(registration);
             MethodPlan candidatePlan = MethodPlan.create(method, target.access(), candidate);
+            @Nullable String previousMethodKey = methodKeysById.get(methodId);
+            @Nullable PluginPatchTarget previousTarget = targetsById.get(methodId);
+            @Nullable MethodPlan previousPlan = plansById.get(methodId);
+            boolean firstMethodRegistration = current.isEmpty();
             PluginPatchDispatcher.publish(methodId, this);
             methodKeysById.putIfAbsent(methodId, methodKey);
             targetsById.put(methodId, target);
             registrationsByMethod.put(methodId, candidate);
             publishPlan(methodId, candidatePlan);
+            if (firstMethodRegistration) {
+                try {
+                    retransformCurrentClass(method.target());
+                } catch (PluginPatchFailure failure) {
+                    restoreRegistrationState(
+                            methodId,
+                            previousMethodKey,
+                            previousTarget,
+                            current,
+                            previousPlan
+                    );
+                    restoreClassBestEffort(method);
+                    throw failure;
+                }
+            }
             return registration;
         }
     }
@@ -245,11 +291,73 @@ public final class PluginPatchEngine {
                 registrationsByMethod.remove(value.methodId());
                 publishPlan(value.methodId(), null);
                 PluginPatchDispatcher.remove(value.methodId(), this);
+                restoreClassBestEffort(value.method());
                 return;
             }
             registrationsByMethod.put(value.methodId(), remaining);
             PluginPatchTarget target = Objects.requireNonNull(targetsById.get(value.methodId()));
             publishPlan(value.methodId(), MethodPlan.create(value.method(), target.access(), remaining));
+        }
+    }
+
+    /// Restores all mutable registration state after a first-method retransformation failure.
+    ///
+    /// @param methodId stable method identity
+    /// @param previousMethodKey prior collision key, or `null`
+    /// @param previousTarget prior retained target, or `null`
+    /// @param previousRegistrations prior registration list
+    /// @param previousPlan prior live plan, or `null`
+    private void restoreRegistrationState(
+            long methodId,
+            @Nullable String previousMethodKey,
+            @Nullable PluginPatchTarget previousTarget,
+            List<PluginPatchRegistration> previousRegistrations,
+            @Nullable MethodPlan previousPlan
+    ) {
+        if (previousMethodKey == null) {
+            methodKeysById.remove(methodId);
+        } else {
+            methodKeysById.put(methodId, previousMethodKey);
+        }
+        if (previousTarget == null) {
+            targetsById.remove(methodId);
+        } else {
+            targetsById.put(methodId, previousTarget);
+        }
+        if (previousRegistrations.isEmpty()) {
+            registrationsByMethod.remove(methodId);
+        } else {
+            registrationsByMethod.put(methodId, new ArrayList<>(previousRegistrations));
+        }
+        publishPlan(methodId, previousPlan);
+        if (previousPlan == null) {
+            PluginPatchDispatcher.remove(methodId, this);
+        } else {
+            PluginPatchDispatcher.publish(methodId, this);
+        }
+    }
+
+    /// Retransforms the current exact launcher class when the target has already been loaded.
+    ///
+    /// @param binaryName exact target binary name
+    /// @throws PluginPatchFailure if target lookup or JVM retransformation fails
+    private void retransformCurrentClass(String binaryName) throws PluginPatchFailure {
+        @Nullable Class<?> loadedClass = targetPolicy.currentLoadedClass(binaryName);
+        if (loadedClass != null) {
+            classRetransformer.retransform(loadedClass);
+        }
+    }
+
+    /// Best-effort retransforms a target after plan rollback or final registration removal.
+    ///
+    /// Stale injected dispatchers remain fail-open because the live plan and dispatcher publication are removed first.
+    ///
+    /// @param method exact method whose owning class may require bytecode restoration
+    private void restoreClassBestEffort(PluginPatchMethod method) {
+        try {
+            retransformCurrentClass(method.target());
+        } catch (PluginPatchFailure | RuntimeException | LinkageError exception) {
+            LOG.warning("Unable to restore Aura Patch target class: " + method.target(), exception);
         }
     }
 

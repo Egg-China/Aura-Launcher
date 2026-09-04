@@ -79,13 +79,33 @@ public final class PluginPatchTransformer implements ClassFileTransformer {
     /// Exact launcher class loader accepted for definitions and hierarchy resolution.
     private final ClassLoader launcherClassLoader;
 
+    /// Correlates retransformation callbacks with failures otherwise suppressed by the JVM.
+    private final PluginPatchRetransformationMonitor retransformationMonitor;
+
     /// Creates one transformer for an engine and exact launcher loader.
     ///
     /// @param engine immutable-plan owner
     /// @param launcherClassLoader exact launcher class loader
     PluginPatchTransformer(PluginPatchEngine engine, ClassLoader launcherClassLoader) {
+        this(engine, launcherClassLoader, new PluginPatchRetransformationMonitor());
+    }
+
+    /// Creates one transformer with an explicit retransformation outcome monitor.
+    ///
+    /// @param engine immutable-plan owner
+    /// @param launcherClassLoader exact launcher class loader
+    /// @param retransformationMonitor retransformation outcome monitor shared with Instrumentation
+    PluginPatchTransformer(
+            PluginPatchEngine engine,
+            ClassLoader launcherClassLoader,
+            PluginPatchRetransformationMonitor retransformationMonitor
+    ) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.launcherClassLoader = Objects.requireNonNull(launcherClassLoader, "launcherClassLoader");
+        this.retransformationMonitor = Objects.requireNonNull(
+                retransformationMonitor,
+                "retransformationMonitor"
+        );
     }
 
     /// Applies dispatcher advice to every currently planned method in one exact launcher definition.
@@ -113,10 +133,6 @@ public final class PluginPatchTransformer implements ClassFileTransformer {
             return null;
         }
         String binaryName = className.replace('/', '.');
-        @Unmodifiable Map<String, Long> methodIds = methodIds(binaryName);
-        if (methodIds.isEmpty()) {
-            return null;
-        }
         if (classBeingRedefined != null
                 && (!binaryName.equals(classBeingRedefined.getName())
                 || classBeingRedefined.getClassLoader() != launcherClassLoader
@@ -127,6 +143,11 @@ public final class PluginPatchTransformer implements ClassFileTransformer {
         }
 
         try {
+            @Unmodifiable Map<String, Long> methodIds = methodIds(binaryName);
+            if (methodIds.isEmpty()) {
+                retransformationMonitor.record(classBeingRedefined, null);
+                return null;
+            }
             ClassReader reader = new ClassReader(classFileBuffer);
             if (!className.equals(reader.getClassName())) {
                 throw new IllegalArgumentException("Class bytes declare another name");
@@ -141,8 +162,11 @@ public final class PluginPatchTransformer implements ClassFileTransformer {
             if (!visitor.transformedEveryMethod()) {
                 throw new IllegalArgumentException("Current class bytes omit an active Patch method");
             }
-            return writer.toByteArray();
+            byte[] transformed = writer.toByteArray();
+            retransformationMonitor.record(classBeingRedefined, null);
+            return transformed;
         } catch (RuntimeException | LinkageError exception) {
+            retransformationMonitor.record(classBeingRedefined, exception);
             IllegalClassFormatException failure = new IllegalClassFormatException(
                     "Unable to transform launcher Patch target " + binaryName + ": " + exception.getMessage()
             );

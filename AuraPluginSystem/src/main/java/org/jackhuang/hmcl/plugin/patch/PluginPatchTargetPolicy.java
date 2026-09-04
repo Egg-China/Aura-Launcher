@@ -100,7 +100,7 @@ public final class PluginPatchTargetPolicy {
     public PluginPatchTarget resolve(PluginPatchMethod method) throws PluginPatchFailure {
         PluginPatchMethod requested = Objects.requireNonNull(method, "method");
         requireAllowedName(requested.target());
-        @Nullable Class<?> loadedClass = findLoadedClass(requested.target());
+        @Nullable Class<?> loadedClass = currentLoadedClass(requested.target());
         String resourceName = requested.target().replace('.', '/') + ".class";
         URL resource = launcherClassLoader.getResource(resourceName);
         if (resource == null || !isOwnedResource(resource, resourceName)) {
@@ -125,12 +125,12 @@ public final class PluginPatchTargetPolicy {
         }
     }
 
-    /// Finds the exact loaded launcher class while rejecting same-name foreign definitions.
+    /// Finds the current exact loaded launcher class while rejecting same-name foreign definitions.
     ///
     /// @param binaryName requested binary name
     /// @return exact launcher class, or `null` when not loaded
     /// @throws PluginPatchFailure if only a foreign or wrong-code-source definition is loaded
-    private @Nullable Class<?> findLoadedClass(String binaryName) throws PluginPatchFailure {
+    @Nullable Class<?> currentLoadedClass(String binaryName) throws PluginPatchFailure {
         @Nullable Class<?> launcherClass = null;
         boolean foreignDefinition = false;
         @Unmodifiable List<Class<?>> loadedClasses = List.copyOf(Objects.requireNonNull(

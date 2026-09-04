@@ -26,6 +26,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.lang.instrument.Instrumentation;
+import java.lang.instrument.UnmodifiableClassException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -183,13 +184,84 @@ public final class PluginInstrumentation {
                 PluginInstrumentation.class,
                 () -> List.of(value.getAllLoadedClasses())
         );
-        PluginPatchEngine engine = new PluginPatchEngine(policy);
-        PluginPatchTransformer transformer = new PluginPatchTransformer(engine, launcherClassLoader);
+        PluginPatchRetransformationMonitor retransformationMonitor = new PluginPatchRetransformationMonitor();
+        PluginPatchEngine engine = new PluginPatchEngine(
+                policy,
+                targetClass -> retransform(value, retransformationMonitor, targetClass)
+        );
+        PluginPatchTransformer transformer = new PluginPatchTransformer(
+                engine,
+                launcherClassLoader,
+                retransformationMonitor
+        );
         value.addTransformer(transformer, true);
         PluginInstrumentation service = new PluginInstrumentation(value, transformer, engine);
         if (!CURRENT.compareAndSet(null, service)) {
             value.removeTransformer(transformer);
             throw new IllegalStateException("Patch instrumentation was published concurrently");
+        }
+    }
+
+    /// Retransforms one exact launcher class through the protected Patch package boundary.
+    ///
+    /// @param instrumentation private JVM instrumentation handle
+    /// @param retransformationMonitor transformer outcome monitor
+    /// @param targetClass exact launcher-owned target class
+    /// @throws PluginPatchFailure if the class cannot be modified or retransformation fails
+    static void retransform(
+            Instrumentation instrumentation,
+            PluginPatchRetransformationMonitor retransformationMonitor,
+            Class<?> targetClass
+    ) throws PluginPatchFailure {
+        Instrumentation value = Objects.requireNonNull(instrumentation, "instrumentation");
+        PluginPatchRetransformationMonitor monitor = Objects.requireNonNull(
+                retransformationMonitor,
+                "retransformationMonitor"
+        );
+        Class<?> target = Objects.requireNonNull(targetClass, "targetClass");
+        final boolean modifiable;
+        try {
+            modifiable = value.isModifiableClass(target);
+        } catch (RuntimeException | LinkageError exception) {
+            throw new PluginPatchFailure(
+                    PluginPatchFailure.Category.TRANSFORM_FAILURE,
+                    "JVM failed to inspect Patch target class: " + target.getName(),
+                    exception
+            );
+        }
+        if (!modifiable) {
+            throw new PluginPatchFailure(
+                    PluginPatchFailure.Category.UNMODIFIABLE_CLASS,
+                    "JVM reports that the Patch target class is not modifiable: " + target.getName()
+            );
+        }
+        final PluginPatchRetransformationMonitor.Attempt attempt;
+        try {
+            attempt = monitor.begin(target);
+        } catch (RuntimeException exception) {
+            throw new PluginPatchFailure(
+                    PluginPatchFailure.Category.TRANSFORM_FAILURE,
+                    "JVM could not begin Patch target class retransformation: " + target.getName(),
+                    exception
+            );
+        }
+        try (attempt) {
+            try {
+                value.retransformClasses(target);
+            } catch (UnmodifiableClassException exception) {
+                throw new PluginPatchFailure(
+                        PluginPatchFailure.Category.UNMODIFIABLE_CLASS,
+                        "JVM rejected Patch target class retransformation: " + target.getName(),
+                        exception
+                );
+            } catch (RuntimeException | LinkageError exception) {
+                throw new PluginPatchFailure(
+                        PluginPatchFailure.Category.TRANSFORM_FAILURE,
+                        "JVM failed to retransform Patch target class: " + target.getName(),
+                        exception
+                );
+            }
+            attempt.requireSuccess();
         }
     }
 
