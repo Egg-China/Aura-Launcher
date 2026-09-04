@@ -211,6 +211,16 @@ public final class PluginManagerRuntimeProviderLifecycleTest {
                         RuntimePatchEndpoint.RegistrationStatus.PATCH_ENGINE_UNAVAILABLE,
                         patchEndpoint.register(patchEndpoint.declarations().get(0))
                 );
+                manager.disablePlugin(EARLY_PAYLOAD_ID);
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> patchEndpoint.register(patchEndpoint.declarations().get(0))
+                );
+                assertTrue(manager.enablePlugin(EARLY_PAYLOAD_ID));
+                assertEquals(
+                        RuntimePatchEndpoint.RegistrationStatus.PATCH_ENGINE_UNAVAILABLE,
+                        patchEndpoint.register(patchEndpoint.declarations().get(0))
+                );
                 FXThreadTestSupport.runOnFxThread(() -> manager.unloadPlugin(EARLY_PAYLOAD_ID));
                 FXThreadTestSupport.runOnFxThread(() ->
                         manager.unloadPlugin(PackagedRuntimeProviderPlugin.PROVIDER_ID));

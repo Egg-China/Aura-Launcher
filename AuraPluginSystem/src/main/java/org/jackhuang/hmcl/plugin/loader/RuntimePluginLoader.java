@@ -148,7 +148,10 @@ public final class RuntimePluginLoader implements PluginLoader {
                         manifest.getExecutionMode(),
                         permissionAuthority,
                         capabilityTokenSupplier,
-                        manifest.getPatches()
+                        manifest.getPatches(),
+                        manifest.getPluginDependencies().stream()
+                                .map(dependency -> dependency.getId())
+                                .toList()
                 );
             }
         } catch (IOException | RuntimeException | Error exception) {

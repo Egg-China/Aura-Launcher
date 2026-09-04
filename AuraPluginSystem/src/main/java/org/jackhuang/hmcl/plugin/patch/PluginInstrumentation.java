@@ -20,6 +20,7 @@ import org.jackhuang.hmcl.plugin.PluginManager;
 import org.jackhuang.hmcl.plugin.PluginPatchDeclaration;
 import org.jackhuang.hmcl.plugin.PluginPermission;
 import org.jackhuang.hmcl.plugin.mixin.bootstrap.HmclMixinAgent;
+import org.jackhuang.hmcl.plugin.runtime.RuntimePatchEndpoint;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -122,6 +123,41 @@ public final class PluginInstrumentation {
         return service.engine.register(identity, dependencies, declarationValue, callbackValue);
     }
 
+    /// Registers one external Runtime Patch through its exact endpoint without exposing engine internals.
+    ///
+    /// Runtime endpoint authorization is reissued and verified for each callback. This method restricts the remaining
+    /// engine entry point to the endpoint class and returns only the lifecycle operations the endpoint needs.
+    ///
+    /// @param artifactIdentity exact owning payload artifact
+    /// @param dependencyIds canonical dependency IDs used for ordering
+    /// @param declaration authoritative schema-v5 declaration
+    /// @param callback exact-generation Runtime callback endpoint
+    /// @return opaque active engine registration
+    /// @throws SecurityException if called by anything except the Runtime Patch endpoint
+    /// @throws PluginPatchFailure if instrumentation, target, or conflict validation fails
+    public static RuntimePatchEndpoint.EngineRegistration registerFromRuntimePatchEndpoint(
+            PluginArtifactIdentity artifactIdentity,
+            Set<String> dependencyIds,
+            PluginPatchDeclaration declaration,
+            PluginPatchCallback callback
+    ) throws PluginPatchFailure {
+        requireRuntimePatchEndpointCaller();
+        @Nullable PluginInstrumentation service = CURRENT.get();
+        if (service == null) {
+            throw new PluginPatchFailure(
+                    PluginPatchFailure.Category.UNAVAILABLE_ENGINE,
+                    "Aura Patch instrumentation is unavailable"
+            );
+        }
+        PluginPatchRegistration registration = service.engine.register(
+                Objects.requireNonNull(artifactIdentity, "artifactIdentity"),
+                Set.copyOf(Objects.requireNonNull(dependencyIds, "dependencyIds")),
+                Objects.requireNonNull(declaration, "declaration"),
+                Objects.requireNonNull(callback, "callback")
+        );
+        return new RuntimeEngineRegistration(registration);
+    }
+
     /// Installs and publishes the sole retransformation-capable Patch transformer for this process.
     ///
     /// Unsupported JVM retransformation leaves the publication empty without affecting ordinary Mixin support.
@@ -207,6 +243,56 @@ public final class PluginInstrumentation {
                 .getDeclaringClass());
         if (caller != PluginManager.class) {
             throw new SecurityException("Patch registration is restricted to Plugin Manager lifecycle ownership");
+        }
+    }
+
+    /// Requires the exact Runtime Patch endpoint as the immediate external registration caller.
+    ///
+    /// @throws SecurityException if the caller is not the Runtime Patch endpoint class
+    private static void requireRuntimePatchEndpointCaller() {
+        Class<?> caller = CALLER_WALKER.walk(frames -> frames
+                .skip(2)
+                .findFirst()
+                .orElseThrow(() -> new SecurityException("Runtime Patch registration caller is unavailable"))
+                .getDeclaringClass());
+        if (caller != RuntimePatchEndpoint.class) {
+            throw new SecurityException("Runtime Patch registration is restricted to its endpoint");
+        }
+    }
+
+    /// Opaque adapter exposing only registration lifecycle state to the Runtime endpoint.
+    @NotNullByDefault
+    private static final class RuntimeEngineRegistration implements RuntimePatchEndpoint.EngineRegistration {
+        /// Exact underlying engine registration.
+        private final PluginPatchRegistration registration;
+
+        /// Creates one restricted registration adapter.
+        ///
+        /// @param registration exact engine registration
+        private RuntimeEngineRegistration(PluginPatchRegistration registration) {
+            this.registration = Objects.requireNonNull(registration, "registration");
+        }
+
+        /// Returns whether the underlying registration remains active.
+        ///
+        /// @return active registration state
+        @Override
+        public boolean isActive() {
+            return registration.isActive();
+        }
+
+        /// Returns the underlying stable callback failure category.
+        ///
+        /// @return failure category, or `null` when no callback failure was recorded
+        @Override
+        public @Nullable PluginPatchFailure.Category failureCategory() {
+            return registration.failureCategory();
+        }
+
+        /// Closes the underlying engine registration.
+        @Override
+        public void close() {
+            registration.close();
         }
     }
 }

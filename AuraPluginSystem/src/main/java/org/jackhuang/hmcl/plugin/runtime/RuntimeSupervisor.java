@@ -23,6 +23,8 @@ import org.jackhuang.hmcl.plugin.PluginManifest;
 import org.jackhuang.hmcl.plugin.PluginPatchDeclaration;
 import org.jackhuang.hmcl.plugin.bridge.PluginCapabilityToken;
 import org.jackhuang.hmcl.plugin.bridge.PluginPermissionAuthority;
+import org.jackhuang.hmcl.plugin.patch.PluginInstrumentation;
+import org.jackhuang.hmcl.plugin.patch.PluginPatchFailure;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -67,11 +69,28 @@ public final class RuntimeSupervisor {
     /// Loaded payloads in insertion order for strict reverse teardown.
     private final Map<RuntimePayloadHandle, PayloadRecord> payloads = new LinkedHashMap<>();
 
+    /// Restricted Runtime Patch registration boundary.
+    private final RuntimePatchEndpoint.EngineRegistrar patchRegistrar;
+
     /// Creates a lifecycle owner around one runtime registry.
     ///
     /// @param registry Provider and binding registry
     public RuntimeSupervisor(RuntimeProviderRegistry registry) {
-        this.registry = registry;
+        this(registry, PluginInstrumentation::registerFromRuntimePatchEndpoint);
+    }
+
+    /// Creates a lifecycle owner with an injectable restricted Patch registrar.
+    ///
+    /// Package visibility confines registrar substitution to Runtime integration tests.
+    ///
+    /// @param registry Provider and binding registry
+    /// @param patchRegistrar restricted Runtime Patch registration boundary
+    RuntimeSupervisor(
+            RuntimeProviderRegistry registry,
+            RuntimePatchEndpoint.EngineRegistrar patchRegistrar
+    ) {
+        this.registry = Objects.requireNonNull(registry, "registry");
+        this.patchRegistrar = Objects.requireNonNull(patchRegistrar, "patchRegistrar");
     }
 
     /// Records discovery of one enabled external Provider package.
@@ -305,6 +324,21 @@ public final class RuntimeSupervisor {
                         current.enabled = true;
                         current.acceptingCallbacks = true;
                     }
+                    try {
+                        activatePatchEndpoint(record);
+                    } catch (RuntimeException | Error exception) {
+                        try {
+                            record.registration.provider().disablePayload(handle);
+                        } catch (IOException | RuntimeException | Error cleanupFailure) {
+                            exception.addSuppressed(cleanupFailure);
+                        }
+                        synchronized (this) {
+                            PayloadRecord current = requirePayloadRecord(handle, initial);
+                            current.enabled = false;
+                            current.acceptingCallbacks = false;
+                        }
+                        throw exception;
+                    }
                     return;
                 }
             }
@@ -325,6 +359,7 @@ public final class RuntimeSupervisor {
         if (stop == null) {
             return;
         }
+        closePatchEndpoint(stop.record);
         cancelAndDrain(stop.callbacks);
         boolean disabled = false;
         try {
@@ -381,29 +416,7 @@ public final class RuntimeSupervisor {
                             "No loaded runtime payload for callback owner: " + dependentPluginId));
             record = requirePayload(handle);
         }
-        synchronized (record.registration.lifecycleLock()) {
-            RuntimeProvider provider;
-            synchronized (this) {
-                requireExactPayloadRecord(handle, record);
-                requireRegistration(record.registration);
-                requireReady(handle.providerId());
-                RuntimeProviderBinding binding = registry.bindingFor(dependentPluginId)
-                        .orElseThrow(() -> new IOException(
-                                "Plugin has no runtime Provider binding: " + dependentPluginId));
-                if (!binding.providerId().equals(handle.providerId())) {
-                    throw new IOException("Runtime Provider binding changed before payload callback: "
-                            + dependentPluginId);
-                }
-                if (!enabledHosts.contains(handle.providerId())
-                        || !record.enabled
-                        || !record.acceptingCallbacks) {
-                    throw new IOException("Runtime payload is not enabled for callbacks: " + dependentPluginId);
-                }
-                provider = record.registration.provider();
-            }
-            byte[] result = provider.invokePayload(handle, operation, argument, callbackId);
-            return Objects.requireNonNull(result, "Runtime Provider payload result").clone();
-        }
+        return invokePayload(handle, record, operation, argument, callbackId);
     }
 
     /// Creates one launcher-side Hook transport bound to the exact current payload record.
@@ -438,7 +451,7 @@ public final class RuntimeSupervisor {
         );
     }
 
-    /// Retains one Stage-1 Patch endpoint on the exact current payload record.
+    /// Retains one Runtime Patch endpoint on the exact current payload record without dependency-order edges.
     ///
     /// @param handle exact loaded payload handle
     /// @param artifactIdentity exact payload package identity
@@ -446,7 +459,7 @@ public final class RuntimeSupervisor {
     /// @param permissionAuthority launcher-owned token verifier
     /// @param capabilityTokenSupplier current payload-session token source
     /// @param declarations authoritative manifest Patch declarations
-    /// @return retained fail-closed Patch endpoint
+    /// @return retained exact-generation Patch endpoint
     /// @throws IOException if the handle, identity, binding, registration, or Provider readiness is invalid
     public RuntimePatchEndpoint retainPatchEndpoint(
             RuntimePayloadHandle handle,
@@ -455,6 +468,37 @@ public final class RuntimeSupervisor {
             PluginPermissionAuthority permissionAuthority,
             Supplier<PluginCapabilityToken> capabilityTokenSupplier,
             Collection<PluginPatchDeclaration> declarations
+    ) throws IOException {
+        return retainPatchEndpoint(
+                handle,
+                artifactIdentity,
+                executionMode,
+                permissionAuthority,
+                capabilityTokenSupplier,
+                declarations,
+                Set.of()
+        );
+    }
+
+    /// Retains one Runtime Patch endpoint on the exact current payload record with engine ordering metadata.
+    ///
+    /// @param handle exact loaded payload handle
+    /// @param artifactIdentity exact payload package identity
+    /// @param executionMode payload execution boundary
+    /// @param permissionAuthority launcher-owned token verifier
+    /// @param capabilityTokenSupplier current payload-session token source
+    /// @param declarations authoritative manifest Patch declarations
+    /// @param dependencyIds canonical dependency IDs used for Patch ordering
+    /// @return retained exact-generation Patch endpoint
+    /// @throws IOException if the handle, identity, binding, registration, or Provider readiness is invalid
+    public RuntimePatchEndpoint retainPatchEndpoint(
+            RuntimePayloadHandle handle,
+            PluginArtifactIdentity artifactIdentity,
+            PluginExecutionMode executionMode,
+            PluginPermissionAuthority permissionAuthority,
+            Supplier<PluginCapabilityToken> capabilityTokenSupplier,
+            Collection<PluginPatchDeclaration> declarations,
+            Collection<String> dependencyIds
     ) throws IOException {
         PayloadRecord record;
         synchronized (this) {
@@ -487,7 +531,15 @@ public final class RuntimeSupervisor {
                         permissionAuthority,
                         capabilityTokenSupplier,
                         declarations,
-                        () -> requireActivePatchRecord(handle, exactRecord)
+                        dependencyIds,
+                        exactRecord,
+                        () -> requireActivePatchRecord(handle, exactRecord),
+                        patchRegistrar,
+                        input -> invokePatchPayload(
+                                handle,
+                                exactRecord,
+                                input
+                        )
                 );
                 record.patchEndpoint = endpoint;
                 return endpoint;
@@ -589,6 +641,79 @@ public final class RuntimeSupervisor {
         return result;
     }
 
+    /// Invokes a payload through one exact captured handle and record without resolving by plugin ID.
+    ///
+    /// @param handle exact captured payload handle
+    /// @param expectedRecord exact captured payload record
+    /// @param operation canonical payload operation
+    /// @param input canonical Bridge Value v1 bytes
+    /// @param callbackId payload-local callback ID, or zero when absent
+    /// @return defensively copied Provider result bytes
+    /// @throws IOException if lifecycle, binding, transport, or result validation fails
+    private byte[] invokePayload(
+            RuntimePayloadHandle handle,
+            PayloadRecord expectedRecord,
+            String operation,
+            byte[] input,
+            long callbackId
+    ) throws IOException {
+        synchronized (expectedRecord.registration.lifecycleLock()) {
+            RuntimeProvider provider;
+            synchronized (this) {
+                requireExactPayloadRecord(handle, expectedRecord);
+                requireRegistration(expectedRecord.registration);
+                requireReady(handle.providerId());
+                RuntimeProviderBinding binding = registry.bindingFor(handle.ownerPluginId())
+                        .orElseThrow(() -> new IOException(
+                                "Plugin has no runtime Provider binding: " + handle.ownerPluginId()));
+                if (!binding.providerId().equals(handle.providerId())) {
+                    throw new IOException("Runtime Provider binding changed before payload callback: "
+                            + handle.ownerPluginId());
+                }
+                if (!expectedRecord.enabled || !expectedRecord.acceptingCallbacks) {
+                    throw new IOException("Runtime payload is not enabled for callbacks: "
+                            + handle.ownerPluginId());
+                }
+                provider = expectedRecord.registration.provider();
+            }
+            byte[] result = provider.invokePayload(
+                    handle,
+                    operation,
+                    Objects.requireNonNull(input, "input").clone(),
+                    callbackId
+            );
+            return Objects.requireNonNull(result, "Runtime Provider payload result").clone();
+        }
+    }
+
+    /// Invokes one Runtime Patch operation and preserves lifecycle revocation as a stable callback category.
+    ///
+    /// @param handle exact captured payload handle
+    /// @param expectedRecord exact captured payload record
+    /// @param input canonical `aura.patch.v1` request bytes
+    /// @return defensively copied Provider response bytes
+    /// @throws Exception if lifecycle validation or Provider invocation fails
+    private byte[] invokePatchPayload(
+            RuntimePayloadHandle handle,
+            PayloadRecord expectedRecord,
+            byte[] input
+    ) throws Exception {
+        try {
+            return invokePayload(handle, expectedRecord, "aura.patch.v1", input, 0L);
+        } catch (IOException | IllegalStateException exception) {
+            try {
+                requireActivePatchRecord(handle, expectedRecord);
+            } catch (IllegalStateException lifecycleFailure) {
+                throw new PluginPatchFailure(
+                        PluginPatchFailure.Category.LIFECYCLE_REVOKED,
+                        "Runtime Patch payload lifecycle is no longer active",
+                        lifecycleFailure
+                );
+            }
+            throw exception;
+        }
+    }
+
     /// Requires one admitted callback to remain in its exact active payload generation before Provider entry.
     ///
     /// @param callback exact admitted callback
@@ -665,6 +790,7 @@ public final class RuntimeSupervisor {
             initial = requirePayload(handle);
         }
         PayloadStop stop = Objects.requireNonNull(beginPayloadStop(handle, initial, true));
+        closePatchEndpoint(stop.record);
         cancelAndDrain(stop.callbacks);
         completePayloadUnload(handle, stop);
     }
@@ -705,6 +831,34 @@ public final class RuntimeSupervisor {
                 }
             }
             stop.transition.finished.countDown();
+        }
+    }
+
+    /// Registers every retained declaration after its external payload has enabled successfully.
+    ///
+    /// @param record exact enabled payload record
+    private static void activatePatchEndpoint(PayloadRecord record) {
+        @Nullable RuntimePatchEndpoint endpoint = record.patchEndpoint;
+        if (endpoint == null) {
+            return;
+        }
+        try {
+            for (PluginPatchDeclaration declaration : endpoint.declarations()) {
+                endpoint.register(declaration);
+            }
+        } catch (RuntimeException | Error exception) {
+            endpoint.close();
+            throw exception;
+        }
+    }
+
+    /// Closes every retained registration before Provider payload disablement or unloading begins.
+    ///
+    /// @param record exact stopping payload record
+    private static void closePatchEndpoint(PayloadRecord record) {
+        @Nullable RuntimePatchEndpoint endpoint = record.patchEndpoint;
+        if (endpoint != null) {
+            endpoint.close();
         }
     }
 
@@ -1225,7 +1379,7 @@ public final class RuntimeSupervisor {
         /// Current payload lifecycle transition, or `null` between mutations.
         private @Nullable PayloadTransition transition;
 
-        /// Stage-1 fail-closed Patch endpoint retained for this exact payload record, or `null` when undeclared.
+        /// Patch endpoint retained for this exact payload record, or `null` when undeclared.
         private @Nullable RuntimePatchEndpoint patchEndpoint;
 
         /// Creates one loaded disabled payload record.

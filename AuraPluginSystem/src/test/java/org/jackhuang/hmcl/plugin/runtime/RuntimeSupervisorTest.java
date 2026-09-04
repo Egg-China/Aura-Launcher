@@ -23,9 +23,15 @@ import org.jackhuang.hmcl.plugin.PluginHookPoint;
 import org.jackhuang.hmcl.plugin.PluginHookResult;
 import org.jackhuang.hmcl.plugin.PluginPermission;
 import org.jackhuang.hmcl.plugin.PluginPatchDeclaration;
+import org.jackhuang.hmcl.plugin.PluginPatchInvocation;
+import org.jackhuang.hmcl.plugin.PluginPatchResult;
 import org.jackhuang.hmcl.plugin.PluginSecretAccess;
+import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
 import org.jackhuang.hmcl.plugin.bridge.PluginCapabilityToken;
 import org.jackhuang.hmcl.plugin.bridge.PluginPermissionAuthority;
+import org.jackhuang.hmcl.plugin.bridge.RuntimeBridgeWireCodec;
+import org.jackhuang.hmcl.plugin.patch.PluginPatchCallback;
+import org.jackhuang.hmcl.plugin.patch.PluginPatchFailure;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -57,6 +63,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -640,7 +649,7 @@ public final class RuntimeSupervisorTest {
         registration.close();
     }
 
-    /// Retains Stage-1 Patch declarations on the exact payload record and invalidates them on unload.
+    /// Registers Runtime Patches after enable, closes them before stop, and rejects a reissued payload generation.
     ///
     /// @param temporaryDirectory isolated payload paths
     /// @throws Exception if fixture lifecycle or cleanup fails
@@ -648,22 +657,50 @@ public final class RuntimeSupervisorTest {
     public void retainPatchEndpointOnExactPayloadRecord(@TempDir Path temporaryDirectory) throws Exception {
         String payloadId = "dev.plugin.patch";
         RuntimeProviderRegistry registry = new RuntimeProviderRegistry();
-        RuntimeSupervisor supervisor = new RuntimeSupervisor(registry);
         RecordingProvider provider = new RecordingProvider("dev.host.rust", true);
+        AtomicReference<PluginPatchCallback> callback = new AtomicReference<>();
+        AtomicBoolean registrationActive = new AtomicBoolean();
+        AtomicInteger registrationCount = new AtomicInteger();
+        RuntimeSupervisor supervisor = new RuntimeSupervisor(registry, (identity, dependencies, requested, value) -> {
+            callback.set(value);
+            registrationActive.set(true);
+            registrationCount.incrementAndGet();
+            provider.events.add("patch.register");
+            return new RuntimePatchEndpoint.EngineRegistration() {
+                /// Returns whether this fake registration remains active.
+                @Override
+                public boolean isActive() {
+                    return registrationActive.get();
+                }
+
+                /// Returns no callback failure for this lifecycle-only registration.
+                @Override
+                public PluginPatchFailure.@Nullable Category failureCategory() {
+                    return null;
+                }
+
+                /// Closes this fake registration once and records lifecycle order.
+                @Override
+                public void close() {
+                    if (registrationActive.getAndSet(false)) {
+                        provider.events.add("patch.close");
+                    }
+                }
+            };
+        });
         advanceToBootstrap(supervisor, "dev.host.rust");
         RuntimeProviderRegistration registration = supervisor.register("dev.host.rust", provider);
         supervisor.activate(registration);
         registry.bind(payloadId, requirement("rust"));
         RuntimePayloadHandle handle = supervisor.loadPayload(
                 payloadId, payloadContext(payloadId, temporaryDirectory));
-        supervisor.enablePayload(handle);
         PluginArtifactIdentity identity = new PluginArtifactIdentity(payloadId, "1.0.0", "a".repeat(64));
         PluginPermissionAuthority authority = new PluginPermissionAuthority();
         PluginPatchDeclaration declaration = new PluginPatchDeclaration(
-                "org.jackhuang.hmcl.test.PatchTarget",
-                "launch",
+                RuntimePatchEndpointTest.class.getName(),
+                "target",
                 PluginPatchDeclaration.PatchType.BEFORE,
-                List.of("java.lang.String")
+                List.of("int")
         );
 
         RuntimePatchEndpoint endpoint = supervisor.retainPatchEndpoint(
@@ -678,24 +715,70 @@ public final class RuntimeSupervisorTest {
                         RuntimeHookEndpoint.CALLBACK_DOMAIN,
                         Duration.ofMinutes(1)
                 ),
-                List.of(declaration)
+                List.of(declaration),
+                Set.of("dev.plugin.dependency")
         );
 
         assertSame(endpoint, supervisor.patchEndpoint(payloadId).orElseThrow());
+        assertThrows(IllegalStateException.class, () -> endpoint.registration(declaration));
+        supervisor.enablePayload(handle);
+        assertEquals(1, registrationCount.get());
+        assertEquals(List.of("enable:" + payloadId, "patch.register"),
+                provider.events.subList(provider.events.size() - 2, provider.events.size()));
+        PluginPatchCallback firstGenerationCallback = callback.get();
         assertEquals(
-                RuntimePatchEndpoint.RegistrationStatus.PATCH_ENGINE_UNAVAILABLE,
-                endpoint.register(declaration)
+                PluginPatchResult.Action.UNCHANGED,
+                firstGenerationCallback.invoke(PluginPatchInvocation.before(declaration, null, List.of(4))).action()
         );
+        assertSame(handle, provider.lastPayloadInvocationHandle);
+        assertEquals("invoke:aura.patch.v1:0", provider.events.get(provider.events.size() - 1));
+
         supervisor.disablePayload(handle);
-        assertThrows(IllegalStateException.class, () -> endpoint.register(declaration));
+        assertEquals(List.of("patch.close", "disable:" + payloadId),
+                provider.events.subList(provider.events.size() - 2, provider.events.size()));
+        assertThrows(IllegalStateException.class, () -> endpoint.registration(declaration));
+        supervisor.enablePayload(handle);
+        assertEquals(2, registrationCount.get());
+        PluginPatchCallback secondGenerationCallback = callback.get();
+        PluginPatchFailure staleSameRecord = assertThrows(
+                PluginPatchFailure.class,
+                () -> firstGenerationCallback.invoke(
+                        PluginPatchInvocation.before(declaration, null, List.of(4)))
+        );
+        assertEquals(PluginPatchFailure.Category.LIFECYCLE_REVOKED, staleSameRecord.category());
         supervisor.unloadPayload(handle);
+        assertEquals(List.of("patch.close", "disable:" + payloadId, "unload:" + payloadId),
+                provider.events.subList(provider.events.size() - 3, provider.events.size()));
         assertTrue(supervisor.patchEndpoint(payloadId).isEmpty());
+
         registry.bind(payloadId, requirement("rust"));
         RuntimePayloadHandle replacement = supervisor.loadPayload(
                 payloadId, payloadContext(payloadId, temporaryDirectory));
         assertEquals(handle, replacement);
+        RuntimePatchEndpoint replacementEndpoint = supervisor.retainPatchEndpoint(
+                replacement,
+                identity,
+                PluginExecutionMode.EMBEDDED,
+                authority,
+                () -> authority.issue(
+                        identity,
+                        PluginExecutionMode.EMBEDDED,
+                        Set.of(PluginPermission.LAUNCHER_PATCH),
+                        RuntimeHookEndpoint.CALLBACK_DOMAIN,
+                        Duration.ofMinutes(1)
+                ),
+                List.of(declaration),
+                Set.of("dev.plugin.dependency")
+        );
         supervisor.enablePayload(replacement);
-        assertThrows(IllegalStateException.class, () -> endpoint.register(declaration));
+        assertEquals(3, registrationCount.get());
+        PluginPatchFailure stale = assertThrows(
+                PluginPatchFailure.class,
+                () -> secondGenerationCallback.invoke(
+                        PluginPatchInvocation.before(declaration, null, List.of(4)))
+        );
+        assertEquals(PluginPatchFailure.Category.LIFECYCLE_REVOKED, stale.category());
+        assertSame(replacementEndpoint, supervisor.patchEndpoint(payloadId).orElseThrow());
 
         supervisor.unloadPayload(replacement);
         registration.close();
@@ -1607,6 +1690,9 @@ public final class RuntimeSupervisorTest {
         /// Optional gate which blocks raw payload invocation until the test releases it.
         private @Nullable CountDownLatch releaseInvocation;
 
+        /// Exact payload handle observed by the most recent raw payload invocation.
+        private @Nullable RuntimePayloadHandle lastPayloadInvocationHandle;
+
         /// Optional signal emitted when Hook invocation enters Provider code.
         private @Nullable CountDownLatch hookEntered;
 
@@ -1785,13 +1871,13 @@ public final class RuntimeSupervisorTest {
             }
         }
 
-        /// Echoes one raw payload callback after optional deterministic blocking.
+        /// Records one raw payload callback and returns an unchanged Patch response or an ordinary echo.
         ///
         /// @param handle exact current payload handle
         /// @param operation canonical payload operation
         /// @param input canonical Bridge bytes
         /// @param callbackId payload-local callback ID
-        /// @return defensive echo of the supplied bytes
+        /// @return canonical unchanged Patch bytes or a defensive echo of the supplied bytes
         /// @throws IOException if callback coordination is interrupted or times out
         @Override
         public byte[] invokePayload(
@@ -1801,7 +1887,14 @@ public final class RuntimeSupervisorTest {
                 long callbackId
         ) throws IOException {
             events.add("invoke:" + operation + ":" + callbackId);
+            lastPayloadInvocationHandle = handle;
             awaitCallback(invocationEntered, releaseInvocation);
+            if ("aura.patch.v1".equals(operation)) {
+                Map<String, BridgeValue> response = new java.util.LinkedHashMap<>();
+                response.put("schemaVersion", BridgeValue.integer(1L));
+                response.put("action", BridgeValue.string("unchanged"));
+                return RuntimeBridgeWireCodec.encode(BridgeValue.map(response));
+            }
             return input.clone();
         }
 

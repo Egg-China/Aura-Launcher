@@ -131,11 +131,11 @@ public final class PluginManagerPatchLifecycleTest {
         }
     }
 
-    /// Rejects direct use of the process-wide registration facade outside the exact Plugin Manager class.
+    /// Rejects direct use of both process-wide registration facades outside their exact lifecycle owners.
     ///
     /// @throws IOException if the fixture manifest cannot be parsed
     @Test
-    public void restrictInstrumentationRegistrationFacadeToPluginManager() throws IOException {
+    public void restrictInstrumentationRegistrationFacadesToLifecycleOwners() throws IOException {
         PluginPatchDeclaration declaration = manifest(
                 "dev.aura.test.patch-facade-caller",
                 successfulPatchJson()
@@ -149,6 +149,16 @@ public final class PluginManagerPatchLifecycleTest {
                 ),
                 Set.of(),
                 Set.of(PluginPermission.LAUNCHER_PATCH),
+                declaration,
+                invocation -> PluginPatchResult.unchanged()
+        ));
+        assertThrows(SecurityException.class, () -> PluginInstrumentation.registerFromRuntimePatchEndpoint(
+                new PluginArtifactIdentity(
+                        "dev.aura.test.patch-facade-caller",
+                        "1.0.0",
+                        "b".repeat(64)
+                ),
+                Set.of(),
                 declaration,
                 invocation -> PluginPatchResult.unchanged()
         ));
