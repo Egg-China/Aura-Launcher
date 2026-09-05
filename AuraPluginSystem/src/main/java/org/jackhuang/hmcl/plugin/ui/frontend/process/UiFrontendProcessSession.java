@@ -16,6 +16,7 @@
 package org.jackhuang.hmcl.plugin.ui.frontend.process;
 
 import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
+import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendCoordinator;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -56,7 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /// included in the ordinary ten-second deadline. The session authenticates no package or permission state; callers
 /// must supply only already inventoried paths and a handler that performs launcher-owned checks per command.
 @NotNullByDefault
-public final class UiFrontendProcessSession implements AutoCloseable {
+public final class UiFrontendProcessSession implements AutoCloseable, UiFrontendCoordinator.SupervisedSession {
     /// Maximum number of active incoming and outgoing requests combined.
     private static final int MAX_INFLIGHT = 32;
 

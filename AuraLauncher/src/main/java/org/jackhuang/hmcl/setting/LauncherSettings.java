@@ -73,6 +73,9 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
     /// The JSON property name for selected instance IDs keyed by game directory ID.
     static final String PROPERTY_SELECTED_INSTANCE = "selectedInstance";
 
+    /// The JSON property name for the selected visible UI frontend.
+    static final String PROPERTY_SELECTED_UI_FRONTEND = "selectedUiFrontend";
+
     /// Default launcher theme used when no stored theme reference is available.
     public static final ThemeReference DEFAULT_THEME_REFERENCE = new ThemeReference("hmcl.default", null);
 
@@ -608,6 +611,19 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
     /// should use `GameDirectoryManager.setSelectedGameDirectory` instead of modifying this property directly.
     public ObjectProperty<@Nullable GameDirectoryID> selectedGameDirectoryProperty() {
         return selectedGameDirectory;
+    }
+
+    /// The selected visible UI frontend ID.
+    ///
+    /// `javafx` is the always-available built-in provider; any other value names an installed UI-provider plugin and is
+    /// normalized back to `javafx` by the coordinator when that package is absent, incompatible, or untrusted.
+    @SerializedName(PROPERTY_SELECTED_UI_FRONTEND)
+    private final StringProperty selectedUiFrontend =
+            new SimpleStringProperty(this, PROPERTY_SELECTED_UI_FRONTEND, "javafx");
+
+    /// Returns the selected visible UI frontend ID property.
+    public StringProperty selectedUiFrontendProperty() {
+        return selectedUiFrontend;
     }
 
     /// The default game setting preset ID.
