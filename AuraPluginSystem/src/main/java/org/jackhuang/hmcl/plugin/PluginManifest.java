@@ -667,6 +667,9 @@ public final class PluginManifest {
         if (type == null) {
             throw new IOException("Missing plugin type");
         }
+        if (schemaVersion < 5 && type == PluginType.NATIVE) {
+            throw new IOException("Plugin type native requires schemaVersion 5");
+        }
         requireNonBlank(entrypoint, "entrypoint");
         requireValidIconResource(icon);
 
@@ -850,7 +853,7 @@ public final class PluginManifest {
         }
 
         if (schemaVersion >= 5) {
-            validateRuntimeProviderContract(declaredPermissions);
+            validateRuntimeContract(declaredPermissions, required);
         }
 
         if (schemaVersion >= 4) {
@@ -919,12 +922,26 @@ public final class PluginManifest {
         }
     }
 
-    /// Validates schema-v5 runtime-provider roles after permission declarations have been normalized.
+    /// Validates schema-v5 runtime roles after permission declarations have been normalized.
     ///
     /// @param declaredPermissions permissions declared by this manifest
+    /// @param requiredPermissions permissions required before execution
     /// @throws IOException if role-specific declarations are incomplete or incompatible
-    private void validateRuntimeProviderContract(Set<PluginPermission> declaredPermissions) throws IOException {
+    private void validateRuntimeContract(
+            Set<PluginPermission> declaredPermissions,
+            Set<PluginPermission> requiredPermissions
+    ) throws IOException {
         @Unmodifiable List<RuntimeProviderDeclaration> providedRuntimes = getProvidesRuntimes();
+        if (getPluginKind() == PluginKind.UI_PROVIDER) {
+            validateUiProviderContract(declaredPermissions, requiredPermissions);
+            return;
+        }
+        if (type == PluginType.NATIVE) {
+            throw new IOException("Only ui-provider plugins may use the native type");
+        }
+        if (PluginRuntimeTypes.AURA_UI.equals(getRuntime())) {
+            throw new IOException("Only ui-provider plugins may use the aura-ui runtime");
+        }
         if (getPluginKind() == PluginKind.NORMAL) {
             if (!providedRuntimes.isEmpty()) {
                 throw new IOException("Normal plugins cannot provide runtimes");
@@ -952,8 +969,9 @@ public final class PluginManifest {
         Set<String> providedRuntimeIds = new HashSet<>();
         boolean requiresNativeCode = false;
         for (RuntimeProviderDeclaration declaration : providedRuntimes) {
-            if (PluginRuntimeTypes.JAVA.equals(declaration.getRuntime())) {
-                throw new IOException("Runtime-provider plugins cannot provide the built-in java runtime");
+            if (PluginRuntimeTypes.JAVA.equals(declaration.getRuntime())
+                    || PluginRuntimeTypes.AURA_UI.equals(declaration.getRuntime())) {
+                throw new IOException("Runtime-provider plugins cannot provide launcher-owned runtimes");
             }
             if (!providedRuntimeIds.add(declaration.getRuntime())) {
                 throw new IOException("Duplicate provided runtime: " + declaration.getRuntime());
@@ -964,6 +982,90 @@ public final class PluginManifest {
         if (requiresNativeCode && !declaredPermissions.contains(PluginPermission.NATIVE_CODE)) {
             throw new IOException("Native runtime providers must declare permission native-code");
         }
+    }
+
+    /// Validates the native isolated Aura UI provider contract.
+    ///
+    /// @param declaredPermissions permissions declared by this manifest
+    /// @param requiredPermissions permissions required before execution
+    /// @throws IOException if any UI provider declaration can escape its isolated launcher-owned boundary
+    private void validateUiProviderContract(
+            Set<PluginPermission> declaredPermissions,
+            Set<PluginPermission> requiredPermissions
+    ) throws IOException {
+        if (type != PluginType.NATIVE) {
+            throw new IOException("UI provider plugins must use the native type");
+        }
+        if (!PluginRuntimeTypes.AURA_UI.equals(getRuntime()) || getAbi() != PluginAbi.ABI_1) {
+            throw new IOException("UI provider plugins must use the aura-ui runtime ABI 1");
+        }
+        if (getExecutionMode() != PluginExecutionMode.ISOLATED) {
+            throw new IOException("UI provider plugins must use isolated execution");
+        }
+        if (hasMixins() || hasHooks() || hasPatches()) {
+            throw new IOException("UI provider plugins cannot declare Mixins, hooks, or patches");
+        }
+        if (declaredPermissions.contains(PluginPermission.JVM_RAW)) {
+            throw new IOException("UI provider plugins cannot declare permission jvm-raw");
+        }
+        if (runtimeProviderDeclared || providesRuntimesDeclared || runtimeProvider != null || !providedRuntimesEmpty()) {
+            throw new IOException("UI provider plugins cannot declare runtime Provider metadata");
+        }
+        if (!platformsDeclared || platforms == null || platforms.isEmpty()) {
+            throw new IOException("UI provider plugins must declare at least one platform target");
+        }
+        for (String platform : getPlatforms()) {
+            if (!PluginRuntimeTypes.isAuraUiPlatformTarget(platform)) {
+                throw new IOException("UI provider plugins require an exact supported platform target: " + platform);
+            }
+        }
+        Set<PluginPermission> requiredUiPermissions = EnumSet.of(
+                PluginPermission.LAUNCHER_UI_PROVIDER,
+                PluginPermission.NATIVE_CODE,
+                PluginPermission.PROCESS);
+        if (!declaredPermissions.containsAll(requiredUiPermissions)
+                || !requiredPermissions.containsAll(requiredUiPermissions)) {
+            throw new IOException("UI provider plugins must declare and require launcher-ui-provider, native-code, and process");
+        }
+        requireSafeUiProviderEntrypoint(Objects.requireNonNull(entrypoint));
+    }
+
+    /// Returns whether this manifest has no runtime-provider declaration after null normalization.
+    ///
+    /// @return whether no runtime provider declarations are present
+    private boolean providedRuntimesEmpty() {
+        return getProvidesRuntimes().isEmpty();
+    }
+
+    /// Requires an executable path to remain a canonical safe relative path within the package archive.
+    ///
+    /// @param value native UI provider entry point
+    /// @throws IOException if the path is absolute, ambiguous, or contains unsafe archive path syntax
+    private static void requireSafeUiProviderEntrypoint(String value) throws IOException {
+        if (hasOuterWhitespace(value)
+                || value.startsWith("/")
+                || value.startsWith("\\\\")
+                || value.contains("\\")
+                || value.contains(":")
+                || value.indexOf('\u0000') >= 0) {
+            throw new IOException("Invalid UI provider entrypoint: " + value);
+        }
+        for (String component : value.split("/", -1)) {
+            if (component.isEmpty() || component.equals(".") || component.equals("..")) {
+                throw new IOException("Invalid UI provider entrypoint: " + value);
+            }
+        }
+    }
+
+    /// Returns whether either boundary code point is whitespace under Unicode-aware path validation.
+    ///
+    /// @param value path value to inspect
+    /// @return whether the first or last code point is a Unicode whitespace or space character
+    private static boolean hasOuterWhitespace(String value) {
+        int first = value.codePointAt(0);
+        int last = value.codePointBefore(value.length());
+        return Character.isWhitespace(first) || Character.isSpaceChar(first)
+                || Character.isWhitespace(last) || Character.isSpaceChar(last);
     }
 
     /// Reads and validates a plugin manifest from JSON.
@@ -1303,6 +1405,10 @@ public final class PluginManifest {
 
         /// Kotlin bytecode plugin loaded through the Java plugin loader.
         @SerializedName("kotlin")
-        KOTLIN
+        KOTLIN,
+
+        /// Native executable package type reserved for isolated Aura UI providers.
+        @SerializedName("native")
+        NATIVE
     }
 }

@@ -17,14 +17,17 @@ package org.jackhuang.hmcl.plugin;
 
 import org.jetbrains.annotations.NotNullByDefault;
 
-/// Distinguishes ordinary plugins from plugins that publish runtime implementations.
+/// Identifies the schema-v5 role of an ordinary plugin, an external runtime provider, or Aura's native UI provider.
 @NotNullByDefault
 public enum PluginKind {
     /// An ordinary plugin that consumes, but does not publish, a runtime implementation.
     NORMAL("normal"),
 
     /// A Java bootstrap plugin that publishes one or more runtime implementation declarations.
-    RUNTIME_PROVIDER("runtime-provider");
+    RUNTIME_PROVIDER("runtime-provider"),
+
+    /// A native executable that supplies Aura Launcher's isolated visible user interface.
+    UI_PROVIDER("ui-provider");
 
     /// Stable serialized identifier used in `plugin.json`.
     private final String id;

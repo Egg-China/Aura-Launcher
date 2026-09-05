@@ -54,6 +54,7 @@ public enum PluginPermissionTier {
             case LAUNCHER_PATCH:
             case JVM_RAW:
             case SHELL:
+            case LAUNCHER_UI_PROVIDER:
             default:
                 return DANGEROUS;
         }

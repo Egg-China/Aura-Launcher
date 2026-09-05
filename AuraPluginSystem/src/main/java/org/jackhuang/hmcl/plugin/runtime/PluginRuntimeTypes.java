@@ -23,9 +23,9 @@ import java.util.Set;
 
 /// Canonical runtime identifiers shared by plugin manifests and the official runtime repository.
 ///
-/// The launcher ships the built-in Java runtime and can discover optional Provider plugins for other identifiers,
-/// resolve their Store dependencies, supervise their lifecycle, and delegate external payloads to them. Concrete
-/// external Runtime Hosts are distributed separately and are not bundled with the launcher.
+/// The launcher owns the built-in `java` and `aura-ui` runtimes. `aura-ui` is restricted to isolated native
+/// schema-v5 UI provider packages and is never an external Runtime Host. Optional Provider plugins implement other
+/// identifiers; the launcher resolves their Store dependencies, supervises their lifecycle, and delegates payloads.
 @NotNullByDefault
 public final class PluginRuntimeTypes {
     /// Built-in JVM runtime loaded directly by the launcher; never provided by an external plugin.
@@ -37,9 +37,16 @@ public final class PluginRuntimeTypes {
     /// Official WebAssembly runtime identifier.
     public static final String WASM = "wasm";
 
+    /// Built-in Aura user-interface runtime used only by isolated native UI provider packages.
+    public static final String AURA_UI = "aura-ui";
+
+    /// Exact platform targets on which isolated Aura UI provider packages may execute.
+    public static final @Unmodifiable Set<String> AURA_UI_PLATFORM_TARGETS = Set.of(
+            "windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-x64", "macos-arm64");
+
     /// Runtime identifiers reserved for the official runtime repository.
     public static final @Unmodifiable Set<String> RESERVED = Set.of(
-            JAVA, "dotnet", "python", "javascript", "native", RUST, WASM);
+            JAVA, "dotnet", "python", "javascript", "native", RUST, WASM, AURA_UI);
 
     /// Prevents construction of the runtime identifier utility class.
     private PluginRuntimeTypes() {
@@ -69,5 +76,13 @@ public final class PluginRuntimeTypes {
             throw new IllegalArgumentException("Invalid plugin runtime identifier: " + value);
         }
         return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /// Returns whether a canonical target is eligible for an isolated Aura UI provider package.
+    ///
+    /// @param platformTarget canonical platform target
+    /// @return whether the target is one of Aura UI's exact supported target pairs
+    public static boolean isAuraUiPlatformTarget(String platformTarget) {
+        return AURA_UI_PLATFORM_TARGETS.contains(platformTarget);
     }
 }

@@ -127,16 +127,35 @@ public final class PluginCompatibilityEvaluator {
                             + " does not satisfy plugin constraint " + launcherConstraint
             );
         }
+        String runtime = requirements.runtime();
         @Unmodifiable List<PluginPlatformTarget> declaredPlatforms = requirements.platforms();
         if (!declaredPlatforms.isEmpty()
-                && declaredPlatforms.stream().noneMatch(platform -> platform.matches(hostPlatform))) {
+                && declaredPlatforms.stream().noneMatch(platform -> PluginRuntimeTypes.AURA_UI.equals(runtime)
+                ? platform.equals(hostPlatform) : platform.matches(hostPlatform))) {
             return new PluginCompatibilityResult(
                     PluginCompatibilityStatus.UNSUPPORTED_PLATFORM,
                     "Declared plugin platforms " + declaredPlatforms
                             + " do not match host " + hostPlatform.getId()
             );
         }
-        String runtime = requirements.runtime();
+        if (PluginRuntimeTypes.AURA_UI.equals(runtime)) {
+            if (requirements.abi() != PluginAbi.ABI_1) {
+                return new PluginCompatibilityResult(
+                        PluginCompatibilityStatus.UNSUPPORTED_ABI,
+                        "Built-in Aura UI runtime supports only ABI 1"
+                );
+            }
+            if (requirements.executionMode() != PluginExecutionMode.ISOLATED) {
+                return new PluginCompatibilityResult(
+                        PluginCompatibilityStatus.UNSUPPORTED_EXECUTION_MODE,
+                        "Built-in Aura UI runtime supports only isolated execution"
+                );
+            }
+            return new PluginCompatibilityResult(
+                    PluginCompatibilityStatus.COMPATIBLE,
+                    "Built-in Aura UI runtime requirements satisfied"
+            );
+        }
         @Unmodifiable List<RuntimeProviderDescriptor> candidates = runtimeProviders.candidates(runtime);
         if (exactProviderId != null) {
             candidates = candidates.stream()

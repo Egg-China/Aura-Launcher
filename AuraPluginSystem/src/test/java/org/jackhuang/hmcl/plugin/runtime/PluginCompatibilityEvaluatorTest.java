@@ -194,6 +194,37 @@ public final class PluginCompatibilityEvaluatorTest {
         assertTrue(result.isCompatible());
     }
 
+    /// Accepts the launcher-owned isolated Aura UI runtime without requiring an external Runtime Host registration.
+    @Test
+    public void acceptBuiltInAuraUiRuntimeWithoutExternalHost() {
+        PluginCompatibilityEvaluator evaluator = new PluginCompatibilityEvaluator(
+                new RuntimeProviderRegistry(), PluginPlatformTarget.parse("windows-x64"));
+        PluginCompatibilityRequirements requirements = requirements(new RuntimeRequirement(
+                PluginRuntimeTypes.AURA_UI,
+                PluginAbi.ABI_1,
+                1,
+                PluginExecutionMode.ISOLATED,
+                Set.of(RuntimeFeature.BRIDGE, RuntimeFeature.NATIVE),
+                null
+        ));
+
+        assertStatus(PluginCompatibilityStatus.COMPATIBLE, evaluator.evaluate(requirements, "27.2-next"));
+    }
+
+    /// Rejects a UI runtime platform request unless it exactly matches the current host rather than using fallback rules.
+    @Test
+    public void rejectAuraUiPlatformFallback() {
+        PluginCompatibilityEvaluator evaluator = new PluginCompatibilityEvaluator(
+                new RuntimeProviderRegistry(), PluginPlatformTarget.parse("harmonyos-arm64"));
+        PluginCompatibilityRequirements requirements = new PluginCompatibilityRequirements(
+                5, "*", new RuntimeRequirement(
+                PluginRuntimeTypes.AURA_UI, PluginAbi.ABI_1, 1, PluginExecutionMode.ISOLATED,
+                Set.of(RuntimeFeature.BRIDGE, RuntimeFeature.NATIVE), null),
+                List.of(PluginPlatformTarget.parse("linux-arm64")));
+
+        assertStatus(PluginCompatibilityStatus.UNSUPPORTED_PLATFORM, evaluator.evaluate(requirements, "27.2-next"));
+    }
+
     /// Preserves schema-v5 Java Hook and Patch compatibility through the reserved built-in provider.
     @Test
     public void acceptBuiltInJavaRuntimeFeatures() {

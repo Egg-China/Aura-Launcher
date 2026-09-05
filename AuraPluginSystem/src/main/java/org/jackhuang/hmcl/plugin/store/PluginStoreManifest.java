@@ -559,6 +559,13 @@ public final class PluginStoreManifest {
                     return artifact;
                 }
             }
+            if (isUiProvider()) {
+                throw new IOException("No exact UI provider artifact for " + target.getId()
+                        + "; available targets: " + matrix.stream()
+                        .map(artifact -> artifact.platform().getId())
+                        .sorted()
+                        .toList());
+            }
             boolean harmonyArm64Fallback = target.getId().equals("harmonyos-arm64");
             if (harmonyArm64Fallback) {
                 for (PluginStoreArtifact artifact : matrix) {
@@ -587,6 +594,13 @@ public final class PluginStoreManifest {
         /// @return package role
         public PluginKind getPluginKind() {
             return Objects.requireNonNullElse(pluginKind, PluginKind.NORMAL);
+        }
+
+        /// Returns whether this Store version represents an isolated native Aura UI provider.
+        ///
+        /// @return whether this is the UI provider package kind
+        public boolean isUiProvider() {
+            return getPluginKind() == PluginKind.UI_PROVIDER;
         }
 
         /// Returns the requested runtime execution boundary, defaulting to embedded execution.
@@ -663,8 +677,7 @@ public final class PluginStoreManifest {
             return new PluginCompatibilityRequirements(
                     getPluginApiVersion(),
                     getLauncherVersion(),
-                    getRuntime(),
-                    getAbi(),
+                    getRuntimeRequirement(),
                     platformTargets
             );
         }
@@ -864,6 +877,7 @@ public final class PluginStoreManifest {
                     && !seenRequiredPermissions.contains(PluginPermission.MIXIN)) {
                 throw new IOException("Plugin version " + version + " must require permission mixin");
             }
+            validateUiProviderPermissionContract(seenPermissions, seenRequiredPermissions);
 
             if (pluginApiVersion >= 4) {
                 if (minLauncherVersion != null) {
@@ -939,7 +953,9 @@ public final class PluginStoreManifest {
                     throw new IOException("Plugin version " + version + " has an invalid size");
                 }
             }
-            if (pluginApiVersion >= 5 && getPluginKind() == PluginKind.RUNTIME_PROVIDER && !artifactsDeclared) {
+            if (pluginApiVersion >= 5
+                    && (getPluginKind() == PluginKind.RUNTIME_PROVIDER || isUiProvider())
+                    && !artifactsDeclared) {
                 throw new IOException("Runtime provider " + version + " must declare a platform artifact matrix");
             }
         }
@@ -1043,7 +1059,14 @@ public final class PluginStoreManifest {
                 return;
             }
             @Unmodifiable List<RuntimeProviderDeclaration> declarations = getProvidesRuntimes();
+            if (isUiProvider()) {
+                validateUiProviderRuntimeContract(declarations);
+                return;
+            }
             if (getPluginKind() == PluginKind.NORMAL) {
+                if (PluginRuntimeTypes.AURA_UI.equals(getRuntime())) {
+                    throw new IOException("Only UI provider Store plugins may use the aura-ui runtime");
+                }
                 if (!declarations.isEmpty()) {
                     throw new IOException("Normal Store plugins cannot provide runtimes");
                 }
@@ -1068,12 +1091,66 @@ public final class PluginStoreManifest {
             }
             Set<String> runtimeIds = new HashSet<>();
             for (RuntimeProviderDeclaration declaration : declarations) {
-                if (PluginRuntimeTypes.JAVA.equals(declaration.getRuntime())) {
-                    throw new IOException("Store runtime Providers cannot replace the built-in java runtime");
+                if (PluginRuntimeTypes.JAVA.equals(declaration.getRuntime())
+                        || PluginRuntimeTypes.AURA_UI.equals(declaration.getRuntime())) {
+                    throw new IOException("Store runtime Providers cannot replace launcher-owned runtimes");
                 }
                 if (!runtimeIds.add(declaration.getRuntime())) {
                     throw new IOException("Duplicate Store provided runtime: " + declaration.getRuntime());
                 }
+            }
+        }
+
+        /// Validates Store metadata for an isolated native Aura UI provider package.
+        ///
+        /// @param declarations normalized runtime-provider declarations
+        /// @throws IOException if UI metadata can select an external Host or an unsupported compatibility target
+        private void validateUiProviderRuntimeContract(
+                @Unmodifiable List<RuntimeProviderDeclaration> declarations
+        ) throws IOException {
+            if (!PluginRuntimeTypes.AURA_UI.equals(getRuntime()) || getAbi() != PluginAbi.ABI_1) {
+                throw new IOException("UI provider Store plugins must use the aura-ui runtime ABI 1");
+            }
+            if (getExecutionMode() != PluginExecutionMode.ISOLATED) {
+                throw new IOException("UI provider Store plugins must use isolated execution");
+            }
+            if (runtimeProviderDeclared || providesRuntimesDeclared || runtimeProvider != null || !declarations.isEmpty()) {
+                throw new IOException("UI provider Store plugins cannot declare runtime Provider metadata");
+            }
+            if (!platformsDeclared || platforms == null || platforms.isEmpty()) {
+                throw new IOException("UI provider Store plugins must declare at least one platform target");
+            }
+            for (String platform : getPlatforms()) {
+                if (!PluginRuntimeTypes.isAuraUiPlatformTarget(platform)) {
+                    throw new IOException("UI provider Store plugins require an exact supported platform target: "
+                            + platform);
+                }
+            }
+        }
+
+        /// Requires every native UI authority to be both declared and mandatory before installation.
+        ///
+        /// @param declaredPermissions permissions declared by this Store version
+        /// @param requiredPermissions permissions required by this Store version
+        /// @throws IOException if a UI provider can be installed without a required native UI authority
+        private void validateUiProviderPermissionContract(
+                EnumSet<PluginPermission> declaredPermissions,
+                EnumSet<PluginPermission> requiredPermissions
+        ) throws IOException {
+            if (!isUiProvider()) {
+                return;
+            }
+            if (declaredPermissions.contains(PluginPermission.JVM_RAW)) {
+                throw new IOException("UI provider Store plugins cannot declare permission jvm-raw");
+            }
+            EnumSet<PluginPermission> requiredUiPermissions = EnumSet.of(
+                    PluginPermission.LAUNCHER_UI_PROVIDER,
+                    PluginPermission.NATIVE_CODE,
+                    PluginPermission.PROCESS);
+            if (!declaredPermissions.containsAll(requiredUiPermissions)
+                    || !requiredPermissions.containsAll(requiredUiPermissions)) {
+                throw new IOException("UI provider Store plugins must declare and require launcher-ui-provider, "
+                        + "native-code, and process");
             }
         }
 

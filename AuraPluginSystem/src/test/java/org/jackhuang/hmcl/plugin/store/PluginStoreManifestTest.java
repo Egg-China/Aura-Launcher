@@ -20,9 +20,12 @@ import com.google.gson.JsonParser;
 import org.jackhuang.hmcl.plugin.PluginKind;
 import org.jackhuang.hmcl.plugin.PluginPermission;
 import org.jackhuang.hmcl.plugin.runtime.PluginAbi;
+import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityEvaluator;
 import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityRequirements;
+import org.jackhuang.hmcl.plugin.runtime.PluginExecutionMode;
 import org.jackhuang.hmcl.plugin.runtime.PluginPlatformTarget;
 import org.jackhuang.hmcl.plugin.runtime.PluginRuntimeTypes;
+import org.jackhuang.hmcl.plugin.runtime.RuntimeProviderRegistry;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustLevel;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustResult;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -33,6 +36,7 @@ import java.util.List;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
@@ -843,6 +847,106 @@ public final class PluginStoreManifestTest {
                   ]
                 }
                 """.formatted(pluginApiVersion, declarationsJson);
+    }
+
+    /// Parses the Store metadata required for one exact native Aura UI provider package artifact.
+    ///
+    /// @throws IOException if the valid Store fixture cannot be parsed
+    @Test
+    public void parseUiProviderStoreMetadata() throws IOException {
+        PluginStoreManifest manifest = parseManifest("dev.hmclce.test.invalid-declarations", uiProviderStoreManifest());
+        PluginStoreManifest.PluginVersionEntry version = manifest.getVersions().get(0);
+
+        assertEquals(PluginKind.UI_PROVIDER, version.getPluginKind());
+        assertEquals(PluginRuntimeTypes.AURA_UI, version.getRuntime());
+        assertEquals(PluginAbi.ABI_1, version.getAbi());
+        assertEquals(PluginPlatformTarget.parse("windows-x64"),
+                version.requireArtifact(PluginPlatformTarget.parse("windows-x64")).platform());
+    }
+
+    /// Preserves the parsed isolated Aura UI runtime requirement through Store compatibility validation.
+    ///
+    /// @throws IOException if the valid Store metadata cannot be parsed
+    @Test
+    public void preserveIsolatedAuraUiRuntimeRequirementForStoreCompatibility() throws IOException {
+        PluginStoreManifest manifest = parseManifest("dev.hmclce.test.invalid-declarations", uiProviderStoreManifest());
+        PluginStoreManifest.PluginVersionEntry version = manifest.getVersions().get(0);
+        PluginStoreManager manager = new PluginStoreManager(new PluginCompatibilityEvaluator(
+                new RuntimeProviderRegistry(),
+                PluginPlatformTarget.parse("windows-x64")
+        ));
+
+        assertEquals(PluginExecutionMode.ISOLATED, version.toCompatibilityRequirements().executionMode());
+        assertDoesNotThrow(() -> manager.validateCompatibility(version));
+        assertTrue(manager.isCompatible(version));
+    }
+
+    /// Rejects UI provider Store metadata that could select a Host, omit authority, or use an ineligible target.
+    @Test
+    public void rejectInvalidUiProviderStoreMetadata() {
+        String valid = uiProviderStoreManifest();
+
+        assertManifestRejected(valid.replace("\"abi\": 1", "\"abi\": 2"));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"", "\"executionMode\": \"embedded\""));
+        assertManifestRejected(valid.replace("\"platforms\": [\"windows-x64\"]", "\"platforms\": []"));
+        assertManifestRejected(valid.replace("windows-x64", "harmonyos-arm64"));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"",
+                "\"executionMode\": \"isolated\", \"runtimeProvider\": \"dev.aura.host\""));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"",
+                "\"executionMode\": \"isolated\", \"providesRuntimes\": []"));
+        assertManifestRejected(valid.replace("[\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                "[\"launcher-ui-provider\", \"native-code\"]"));
+        assertManifestRejected(valid.replace("\"artifacts\": [", "\"packageUrl\": \"https://example.com/ui.npl\", "
+                + "\"sha256\": \"a" + "a".repeat(63) + "\", \"size\": 1, \"artifacts\": ["));
+    }
+
+    /// Rejects Store entries that expose launcher-owned UI runtime authority through a runtime-provider declaration.
+    @Test
+    public void rejectRuntimeProviderAdvertisingAuraUi() {
+        String provider = uiProviderStoreManifest()
+                .replace("\"runtime\": \"aura-ui\"", "\"runtime\": \"java\"")
+                .replace("\"abi\": 1", "\"abi\": 2")
+                .replace("\"pluginKind\": \"ui-provider\"", "\"pluginKind\": \"runtime-provider\"")
+                .replace("\"executionMode\": \"isolated\"", "\"executionMode\": \"embedded\", "
+                        + "\"providesRuntimes\": [{\"runtime\": \"aura-ui\", \"abis\": [1], "
+                        + "\"bridgeAbi\": 1, \"executionModes\": [\"isolated\"], \"features\": [\"bridge\"]}]");
+
+        assertManifestRejected(provider);
+    }
+
+    /// Rejects raw JVM permission metadata for UI providers before a consumer can derive an invalid isolated requirement.
+    @Test
+    public void rejectUiProviderRawJvmPermission() {
+        assertManifestRejected(uiProviderStoreManifest().replace(
+                "[\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                "[\"launcher-ui-provider\", \"native-code\", \"process\", \"jvm-raw\"]"));
+    }
+
+    /// Creates a valid schema-v5 Store manifest for a launcher-owned native UI provider package.
+    ///
+    /// @return complete UI provider Store manifest JSON
+    private static String uiProviderStoreManifest() {
+        return """
+                {
+                  "schemaVersion": 2,
+                  "id": "dev.hmclce.test.invalid-declarations",
+                  "versions": [{
+                    "version": "1.0.0",
+                    "pluginApiVersion": 5,
+                    "permissions": ["launcher-ui-provider", "native-code", "process"],
+                    "requiredPermissions": ["launcher-ui-provider", "native-code", "process"],
+                    "launcherVersion": "*",
+                    "runtime": "aura-ui",
+                    "abi": 1,
+                    "platforms": ["windows-x64"],
+                    "pluginKind": "ui-provider",
+                    "executionMode": "isolated",
+                    "artifacts": [{"platform": "windows-x64", "packageUrl": "https://example.com/ui.npl",
+                      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 1}],
+                    "dependencies": []
+                  }]
+                }
+                """;
     }
 
     /// Creates a schema-v5 Store manifest whose package identity belongs only to platform artifacts.

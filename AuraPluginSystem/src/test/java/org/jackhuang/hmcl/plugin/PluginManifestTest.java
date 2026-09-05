@@ -1268,6 +1268,181 @@ public final class PluginManifestTest {
         assertNotEquals(first, changedPermission);
     }
 
+    /// Rejects native plugin types before schema v5, where native execution is reserved for UI providers.
+    @Test
+    public void rejectNativePluginTypeBeforeSchemaFive() {
+        assertManifestRejected("""
+                {
+                  "id": "dev.hmclce.test.native-one",
+                  "name": "Native One",
+                  "version": "1.0.0",
+                  "type": "native",
+                  "entrypoint": "bin/plugin"
+                }
+                """);
+        assertManifestRejected("""
+                {
+                  "schemaVersion": 2,
+                  "id": "dev.hmclce.test.native-two",
+                  "name": "Native Two",
+                  "version": "1.0.0",
+                  "type": "native",
+                  "entrypoint": "bin/plugin"
+                }
+                """);
+        assertManifestRejected("""
+                {
+                  "schemaVersion": 3,
+                  "id": "dev.hmclce.test.native-three",
+                  "name": "Native Three",
+                  "version": "1.0.0",
+                  "type": "native",
+                  "entrypoint": "bin/plugin",
+                  "permissions": []
+                }
+                """);
+        assertManifestRejected("""
+                {
+                  "schemaVersion": 4,
+                  "id": "dev.hmclce.test.native-four",
+                  "name": "Native Four",
+                  "version": "1.0.0",
+                  "type": "native",
+                  "entrypoint": "bin/plugin",
+                  "permissions": [],
+                  "requiredPermissions": [],
+                  "launcherVersion": "*"
+                }
+                """);
+    }
+
+    /// Parses the schema-v5 native UI provider contract with its isolated Aura UI runtime requirements.
+    ///
+    /// @throws IOException if the complete UI provider manifest cannot be parsed
+    @Test
+    public void parseSchemaVersionFiveUiProviderManifest() throws IOException {
+        PluginManifest manifest = PluginManifest.fromJson(new StringReader(validUiProviderManifest()));
+
+        assertEquals("aura-ui", manifest.getRuntime());
+        assertEquals("ui-provider", manifest.getPluginKind().getId());
+    }
+
+    /// Rejects UI provider declarations that change their native role, launcher-owned runtime, or isolation boundary.
+    @Test
+    public void rejectInvalidUiProviderRuntimeContract() {
+        String valid = validUiProviderManifest();
+
+        assertManifestRejected(valid.replace("\"type\": \"native\"", "\"type\": \"java\""));
+        assertManifestRejected(valid.replace("\"runtime\": \"aura-ui\"", "\"runtime\": \"java\""));
+        assertManifestRejected(valid.replace("\"abi\": 1", "\"abi\": 2"));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"", "\"executionMode\": \"embedded\""));
+        assertManifestRejected(valid.replace("\"platforms\": [\"windows-x64\"]", "\"platforms\": []"));
+        assertManifestRejected(valid.replace("windows-x64", "freebsd-x64"));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"",
+                "\"executionMode\": \"isolated\", \"runtimeProvider\": \"dev.aura.host\""));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"",
+                "\"executionMode\": \"isolated\", \"providesRuntimes\": []"));
+    }
+
+    /// Rejects ordinary and runtime-provider packages that claim native UI provider-only capabilities.
+    @Test
+    public void rejectUiProviderCapabilitiesOutsideUiProviderKind() {
+        String valid = validUiProviderManifest();
+
+        assertManifestRejected(valid.replace("\"pluginKind\": \"ui-provider\"", "\"pluginKind\": \"normal\""));
+        assertManifestRejected(valid.replace("\"type\": \"native\"", "\"type\": \"java\"")
+                .replace("\"pluginKind\": \"ui-provider\"", "\"pluginKind\": \"normal\""));
+        assertManifestRejected(valid.replace("\"type\": \"native\"", "\"type\": \"java\"")
+                .replace("\"pluginKind\": \"ui-provider\"", "\"pluginKind\": \"runtime-provider\""));
+    }
+
+    /// Rejects runtime providers that advertise the launcher-owned Aura UI runtime to other packages.
+    @Test
+    public void rejectRuntimeProviderAdvertisingAuraUi() {
+        assertManifestRejected(schemaFiveWithDeclarations("""
+                "runtime": "java",
+                "abi": 2,
+                "pluginKind": "runtime-provider",
+                "providesRuntimes": [{"runtime": "aura-ui", "abis": [1], "bridgeAbi": 1,
+                  "executionModes": ["isolated"], "features": ["bridge"]}]
+                """));
+    }
+
+    /// Rejects UI providers unless every native visible-window authority is declared and required.
+    @Test
+    public void requireUiProviderPermissions() {
+        String valid = validUiProviderManifest();
+
+        assertManifestRejected(valid.replace("[\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                "[\"launcher-ui-provider\", \"native-code\"]"));
+        assertManifestRejected(valid.replace("\"requiredPermissions\": [\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                "\"requiredPermissions\": [\"launcher-ui-provider\", \"native-code\"]"));
+    }
+
+    /// Rejects raw JVM access from a UI provider so deriving its runtime requirement remains safe after parsing.
+    @Test
+    public void rejectUiProviderRawJvmPermission() {
+        assertManifestRejected(validUiProviderManifest().replace(
+                "[\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                "[\"launcher-ui-provider\", \"native-code\", \"process\", \"jvm-raw\"]"));
+    }
+
+    /// Rejects executable launcher extension surfaces that cannot run through the isolated UI-only contract.
+    @Test
+    public void rejectMixedUiProviderExecutableSurfaces() {
+        String valid = validUiProviderManifest();
+
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"",
+                "\"executionMode\": \"isolated\", \"mixins\": [\"mixins.ui.json\"]")
+                .replace("[\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                        "[\"launcher-ui-provider\", \"native-code\", \"process\", \"mixin\"]"));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"",
+                "\"executionMode\": \"isolated\", \"hooks\": [\"before-download\"]")
+                .replace("[\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                        "[\"launcher-ui-provider\", \"native-code\", \"process\", \"launcher-hook\"]"));
+        assertManifestRejected(valid.replace("\"executionMode\": \"isolated\"", """
+                "executionMode": "isolated",
+                "patches": [{"target": "org.jackhuang.hmcl.Launcher", "method": "launch", "type": "before",
+                "parameters": []}]""")
+                .replace("[\"launcher-ui-provider\", \"native-code\", \"process\"]",
+                        "[\"launcher-ui-provider\", \"native-code\", \"process\", \"launcher-patch\"]"));
+    }
+
+    /// Rejects unsafe package-relative native UI executable paths before package extraction can interpret them.
+    @Test
+    public void rejectUnsafeUiProviderEntrypoints() {
+        String valid = validUiProviderManifest();
+        for (String entrypoint : List.of(" bin/ui-provider", "bin/ui-provider ", "/bin/ui-provider",
+                "C:/ui-provider", "\\\\server\\\\ui-provider", "bin\\\\ui-provider", "bin/../ui-provider",
+                "bin//ui-provider", "./ui-provider", "\u2003bin/ui-provider")) {
+            assertManifestRejectedAtParsingOrValidation(valid.replace("bin/ui-provider", entrypoint));
+        }
+    }
+
+    /// Builds a complete valid schema-v5 native UI provider package manifest.
+    ///
+    /// @return valid UI provider manifest JSON
+    private static String validUiProviderManifest() {
+        return """
+                {
+                  "schemaVersion": 5,
+                  "id": "dev.aura.test.ui-provider",
+                  "name": "UI Provider",
+                  "version": "1.0.0",
+                  "type": "native",
+                  "entrypoint": "bin/ui-provider",
+                  "permissions": ["launcher-ui-provider", "native-code", "process"],
+                  "requiredPermissions": ["launcher-ui-provider", "native-code", "process"],
+                  "launcherVersion": "*",
+                  "runtime": "aura-ui",
+                  "abi": 1,
+                  "platforms": ["windows-x64"],
+                  "pluginKind": "ui-provider",
+                  "executionMode": "isolated"
+                }
+                """;
+    }
+
     /// Builds a valid schema-v3 manifest with a caller-provided permission JSON value.
     ///
     /// @param permissionsJson raw permission JSON value

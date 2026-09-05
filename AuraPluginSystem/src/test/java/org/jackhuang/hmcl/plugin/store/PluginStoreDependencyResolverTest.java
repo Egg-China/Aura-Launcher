@@ -110,6 +110,56 @@ public final class PluginStoreDependencyResolverTest {
         assertEquals(original.getRuntimeBindings(), reordered.getRuntimeBindings());
     }
 
+    /// Plans an isolated Aura UI provider as a single exact artifact without creating an external Runtime Host edge.
+    ///
+    /// @throws Exception if the launcher-owned UI runtime plan cannot be resolved
+    @Test
+    public void planUiProviderWithoutExternalRuntimeHost() throws Exception {
+        String pluginId = "dev.test.ui-provider";
+        String platform = PluginPlatformTarget.current().getId();
+        PluginStoreRegistry registry = Objects.requireNonNull(JsonUtils.GSON.fromJson("""
+                {"schemaVersion":1,"name":"Aura UI","plugins":[{
+                  "id":"dev.test.ui-provider","name":"Aura UI","manifestUrl":"https://example.com/ui.json"
+                }]}
+                """, PluginStoreRegistry.class));
+        registry.validate();
+        PluginStoreManifest manifest = PluginStoreManifest.fromJson(JsonUtils.GSON.fromJson("""
+                {
+                  "schemaVersion":2,
+                  "id":"dev.test.ui-provider",
+                  "versions":[{
+                    "version":"1.0.0",
+                    "pluginApiVersion":5,
+                    "permissions":["launcher-ui-provider","native-code","process"],
+                    "requiredPermissions":["launcher-ui-provider","native-code","process"],
+                    "launcherVersion":"*",
+                    "runtime":"aura-ui",
+                    "abi":1,
+                    "platforms":["%s"],
+                    "pluginKind":"ui-provider",
+                    "executionMode":"isolated",
+                    "artifacts":[{"platform":"%s","packageUrl":"https://example.com/ui.npl",
+                      "sha256":"%s","size":1}],
+                    "dependencies":[]
+                  }]
+                }
+                """.formatted(platform, platform, "a".repeat(64)), com.google.gson.JsonElement.class), pluginId);
+        PluginStoreManifest.PluginVersionEntry version = manifest.getVersions().get(0);
+        version.setTrust(PluginTrustResult.official("ui-provider-test"));
+        PluginSource source = new PluginSource(
+                "official", "https://example.com/official.json", "Official", true, true
+        );
+        PluginStoreItem item = new PluginStoreItem(
+                source, registry, new PluginStoreManager(), registry.getPlugins().get(0), manifest
+        );
+
+        PluginInstallPlan plan = new PluginStoreDependencyResolver(Map.of(pluginId, item), List.of(source))
+                .resolveInstallPlan(pluginId, version, Map.of(), Map.of(), Map.of());
+
+        assertEquals(List.of(pluginId), plan.getEntries().stream().map(PluginInstallPlan.Entry::getPluginId).toList());
+        assertTrue(plan.getRuntimeBindings().isEmpty());
+    }
+
     /// Adds a compatible runtime Host before its Rust dependent and records the exact binding and artifact.
     @Test
     public void addsCompatibleRuntimeProviderBeforeRustPlugin() throws Exception {

@@ -18,7 +18,9 @@ package org.jackhuang.hmcl.plugin;
 import com.google.gson.annotations.SerializedName;
 import org.jetbrains.annotations.NotNullByDefault;
 
-/// Declares a sensitive launcher capability that a schema-v3 plugin intends to use.
+/// Declares a sensitive launcher capability requested by a schema-v3-or-later plugin.
+///
+/// Schema-v5-only permissions require schema v5; `launcher-ui-provider` is reserved for native UI provider packages.
 @NotNullByDefault
 public enum PluginPermission {
     /// Reads or writes files outside the plugin's packaged resources and private data directory.
@@ -44,6 +46,10 @@ public enum PluginPermission {
     /// Registers or modifies launcher user-interface elements.
     @SerializedName("launcher-ui")
     LAUNCHER_UI("launcher-ui"),
+
+    /// Starts the isolated native user-interface provider that can replace the launcher's visible window.
+    @SerializedName("launcher-ui-provider")
+    LAUNCHER_UI_PROVIDER("launcher-ui-provider"),
 
     /// Reads from or writes to the system clipboard.
     @SerializedName("clipboard")
@@ -102,7 +108,8 @@ public enum PluginPermission {
                 || this == LAUNCHER_PATCH
                 || this == LAUNCHER_CORE
                 || this == JVM_RAW
-                || this == SHELL;
+                || this == SHELL
+                || this == LAUNCHER_UI_PROVIDER;
     }
 
     /// Returns the stable JSON identifier so HMCL's enum adapter preserves kebab-case values.

@@ -267,6 +267,7 @@ public final class PluginStoreDependencyResolver {
         @Nullable PluginInstallPlan.Entry dependent = solution.values().stream()
                 .filter(entry -> !entry.isRuntimeProvider())
                 .filter(entry -> !PluginRuntimeTypes.JAVA.equals(entry.getRuntimeRequirement().getRuntime()))
+                .filter(entry -> !PluginRuntimeTypes.AURA_UI.equals(entry.getRuntimeRequirement().getRuntime()))
                 .filter(entry -> !runtimeBindings.containsKey(entry.getPluginId()))
                 .findFirst()
                 .orElse(null);
@@ -470,7 +471,7 @@ public final class PluginStoreDependencyResolver {
         PluginPlatformTarget host = PluginPlatformTarget.current();
         if (!version.getPlatforms().isEmpty() && version.getPlatforms().stream()
                 .map(PluginPlatformTarget::parse)
-                .noneMatch(platform -> platform.matches(host))) {
+                .noneMatch(platform -> version.isUiProvider() ? platform.equals(host) : platform.matches(host))) {
             throw new IOException("Plugin does not support " + host.getId());
         }
         version.requireArtifact(host);
