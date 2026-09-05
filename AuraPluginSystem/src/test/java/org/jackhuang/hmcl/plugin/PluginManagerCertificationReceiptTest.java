@@ -17,6 +17,7 @@ package org.jackhuang.hmcl.plugin;
 
 import org.jackhuang.hmcl.plugin.internal.PluginPackageVersions;
 import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceipt;
+import org.jackhuang.hmcl.plugin.trust.PluginInstallationTrustProof;
 import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceiptStore;
 import org.jackhuang.hmcl.plugin.trust.PluginRuntimeTrustTestSupport;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -147,7 +148,7 @@ public final class PluginManagerCertificationReceiptTest {
                 Map.of(pluginId, Set.of()),
                 Map.of(),
                 Map.of(pluginId, Optional.empty()),
-                Map.of(pluginId, receipt)
+                Map.of(pluginId, PluginInstallationTrustProof.certified(receipt))
         ));
 
         assertFalse(Files.exists(manager.getPluginsDirectory().resolve(pluginId + ".npl")));
@@ -183,7 +184,7 @@ public final class PluginManagerCertificationReceiptTest {
                 Map.of(pluginId, Set.of()),
                 Map.of(),
                 Map.of(pluginId, Optional.empty()),
-                Map.of(pluginId, receipt)
+                Map.of(pluginId, PluginInstallationTrustProof.certified(receipt))
         );
         return receipt;
     }
