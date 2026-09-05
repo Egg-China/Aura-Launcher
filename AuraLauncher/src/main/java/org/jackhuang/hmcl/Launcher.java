@@ -36,6 +36,7 @@ import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.jackhuang.hmcl.game.HMCLCacheRepository;
 import org.jackhuang.hmcl.plugin.protector.StartupReporter;
+import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendSelector;
 import org.jackhuang.hmcl.setting.*;
 import org.jackhuang.hmcl.task.AsyncTaskExecutor;
 import org.jackhuang.hmcl.task.Schedulers;
@@ -377,6 +378,10 @@ public final class Launcher extends Application {
                 EntryPoint.exit(1);
             }
 
+            // Full supervised native-frontend startup is wired in a later phase; validation runs now so malformed
+            // selections fail before JavaFX bootstrap.
+            resolveUiFrontend(args);
+
             StartupReporter.reportCoreReady();
             setupJavaFXVMOptions();
             setupWindowsAppUserModelID();
@@ -386,6 +391,24 @@ public final class Launcher extends Application {
         } catch (Throwable e) { // Fucking JavaFX will suppress the exception and will break our crash reporter.
             CRASH_REPORTER.uncaughtException(Thread.currentThread(), e);
         }
+    }
+
+    /// Resolves the visible UI frontend for this process, logging it before supervised startup wiring lands.
+    ///
+    /// Exit occurs when the persisted or command-line selection is malformed; valid IDs are logged for diagnosis.
+    ///
+    /// @param args launcher command-line arguments
+    private static void resolveUiFrontend(String[] args) {
+        String selection;
+        try {
+            selection = UiFrontendSelector.select(args, settings().selectedUiFrontendProperty().get());
+        } catch (IllegalArgumentException e) {
+            LOG.error("Invalid UI frontend selection", e);
+            SwingUtils.showErrorDialog(e.getMessage());
+            EntryPoint.exit(1);
+            return;
+        }
+        LOG.info("Selected UI Frontend: " + selection);
     }
 
     /// Offers one pre-settings-load import when Aura is uninitialized and HMCL CE settings exist.
