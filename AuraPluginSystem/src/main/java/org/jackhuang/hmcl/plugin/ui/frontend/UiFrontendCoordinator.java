@@ -143,7 +143,7 @@ public final class UiFrontendCoordinator {
                     executable,
                     executable.getParent(),
                     initialSnapshot,
-                    commandHandler
+                    new PermissionGatedHandler(pluginManager, verified.getId(), commandHandler)
             );
             session = started;
             activeNative = verified;
@@ -173,6 +173,75 @@ public final class UiFrontendCoordinator {
     public Optional<CompletionStage<UiFrontendProcessSession.Termination>> activeSessionTermination() {
         @Nullable SupervisedSession active = session;
         return active == null ? Optional.empty() : Optional.of(active.termination());
+    }
+
+    /// Returns the additional permission one frontend command requires beyond session gating.
+    ///
+    /// @param method fixed `core.*` command method
+    /// @return required permission, or `null` when the session-level grant suffices
+    static @Nullable PluginPermission requiredPermission(String method) {
+        switch (method) {
+            case "core.instance.select":
+            case "core.instance.launch":
+                return PluginPermission.GAME_LAUNCH;
+            case "core.plugin.action":
+                return PluginPermission.LAUNCHER_UI;
+            default:
+                return null;
+        }
+    }
+
+    /// Removes account data from one snapshot reply when the account grant is absent.
+    ///
+    /// @param value launcher snapshot value
+    /// @return redacted snapshot without the `accounts` entry
+    static BridgeValue redactAccounts(BridgeValue value) {
+        if (value instanceof BridgeValue.MapValue map && map.values().containsKey("accounts")) {
+            java.util.LinkedHashMap<String, BridgeValue> redacted =
+                    new java.util.LinkedHashMap<>(map.values());
+            redacted.remove("accounts");
+            return BridgeValue.map(redacted);
+        }
+        return value;
+    }
+
+    /// Rechecks exact-artifact grants for every frontend command before delegation.
+    ///
+    /// Commands with launcher-wide side effects require their dedicated permission on each
+    /// invocation, and snapshot replies drop account data unless the account permission is
+    /// currently granted to the active provider.
+    private record PermissionGatedHandler(
+            PluginManager pluginManager,
+            String pluginId,
+            UiFrontendCommandHandler delegate
+    ) implements UiFrontendCommandHandler {
+        /// Handles one command after recomputing the provider's effective grants.
+        ///
+        /// @param method fixed `core.*` command method
+        /// @param params token-free command parameters
+        /// @return gated asynchronous reply
+        @Override
+        public java.util.concurrent.CompletionStage<Reply> handle(String method, BridgeValue params) {
+            java.util.@Unmodifiable Set<PluginPermission> granted;
+            try {
+                granted = pluginManager.getGrantedPermissions(pluginId);
+            } catch (IOException failure) {
+                return java.util.concurrent.CompletableFuture.failedFuture(failure);
+            }
+            PluginPermission required = requiredPermission(method);
+            if (required != null && !granted.contains(required)) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                        new IllegalStateException("PERMISSION_DENIED: " + method));
+            }
+            java.util.concurrent.CompletionStage<Reply> stage = delegate.handle(method, params);
+            if ("core.snapshot.get".equals(method) && !granted.contains(PluginPermission.ACCOUNT)) {
+                return stage.thenApply(reply -> new Reply(
+                        redactAccounts(reply.value()),
+                        reply.afterResponseAction()
+                ));
+            }
+            return stage;
+        }
     }
 
     /// Requires one verified native package to remain permission-granted.

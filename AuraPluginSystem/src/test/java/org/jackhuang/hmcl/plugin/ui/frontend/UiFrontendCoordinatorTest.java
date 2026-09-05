@@ -92,31 +92,100 @@ public final class UiFrontendCoordinatorTest {
         assertTrue(coordinator.getFallbackReason().isPresent());
     }
 
+    /// Blocks game-launch commands until the provider also holds the game-launch grant.
+    @Test
+    public void commandGateBlocksGameLaunchWithoutGrant(@TempDir Path temporaryDirectory) throws Exception {
+        RecordingLauncher launcher = new RecordingLauncher(new UiFrontendProcessSessionStub());
+        UiFrontendCoordinator coordinator = coordinator(temporaryDirectory, launcher);
+        coordinator.start(coordinator.normalizeSelection(UI_PROVIDER_ID), BridgeValue.nullValue());
+
+        assertTrue(launcher.handler.handle("core.instance.launch", BridgeValue.nullValue())
+                .handle((reply, failure) -> failure).toCompletableFuture().join() instanceof IllegalStateException);
+
+        coordinator.stop();
+    }
+
+    /// Allows game-launch commands after the dedicated grant is present.
+    @Test
+    public void commandGateAllowsGameLaunchWithGrant(@TempDir Path temporaryDirectory) throws Exception {
+        RecordingLauncher launcher = new RecordingLauncher(new UiFrontendProcessSessionStub());
+        UiFrontendCoordinator coordinator = coordinator(temporaryDirectory, launcher,
+                PluginPermission.GAME_LAUNCH);
+        coordinator.start(coordinator.normalizeSelection(UI_PROVIDER_ID), BridgeValue.nullValue());
+
+        assertEquals(BridgeValue.nullValue(), launcher.handler
+                .handle("core.instance.launch", BridgeValue.nullValue())
+                .toCompletableFuture().join().value());
+
+        coordinator.stop();
+    }
+
+    /// Redacts account data from snapshot replies without the account grant.
+    @Test
+    public void snapshotRedactsAccountsWithoutGrant(@TempDir Path temporaryDirectory) throws Exception {
+        BridgeValue snapshot = BridgeValue.map(java.util.Map.of(
+                "instances", BridgeValue.array(java.util.List.of()),
+                "accounts", BridgeValue.array(java.util.List.of())
+        ));
+        RecordingLauncher launcher = new RecordingLauncher(new UiFrontendProcessSessionStub());
+        PluginManager manager = fixtureManager(temporaryDirectory);
+        UiFrontendCoordinator coordinator = new UiFrontendCoordinator(
+                provider(temporaryDirectory, manager),
+                manager,
+                (method, params) -> CompletableFuture.completedFuture(
+                        UiFrontendCommandHandler.Reply.result(snapshot)
+                ),
+                launcher::launch
+        );
+        coordinator.start(coordinator.normalizeSelection(UI_PROVIDER_ID), BridgeValue.nullValue());
+
+        BridgeValue redacted = launcher.handler.handle("core.snapshot.get", BridgeValue.nullValue())
+                .toCompletableFuture().join().value();
+
+        assertFalse(((BridgeValue.MapValue) redacted).values().containsKey("accounts"));
+
+        coordinator.stop();
+    }
+
     /// Publishes one granted UI-provider package for deterministic coordinator fixtures.
-    private UiFrontendCoordinator coordinator(Path temporaryDirectory, SessionLaunch launch) throws Exception {
+    private UiFrontendCoordinator coordinator(Path temporaryDirectory, SessionLaunch launch,
+                                              PluginPermission... extraPermissions) throws Exception {
+        PluginManager manager = fixtureManager(temporaryDirectory, extraPermissions);
+        return new UiFrontendCoordinator(
+                provider(temporaryDirectory, manager),
+                manager,
+                (method, params) -> CompletableFuture.completedFuture(
+                        UiFrontendCommandHandler.Reply.result(BridgeValue.nullValue())
+                ),
+                launch::launch
+        );
+    }
+
+    /// Creates one manager with the base provider grants plus optional extras.
+    private PluginManager fixtureManager(Path temporaryDirectory,
+                                         PluginPermission... extraPermissions) throws Exception {
         Path localHome = temporaryDirectory.resolve("home");
         var constructor = PluginManager.class.getDeclaredConstructor(Path.class);
         constructor.setAccessible(true);
         PluginManager manager = constructor.newInstance(localHome);
         writeUiProviderPackage(manager.getPluginsDirectory().resolve(UI_PROVIDER_ID + ".npl"));
-        manager.setGrantedPermissions(UI_PROVIDER_ID, Set.of(
+        java.util.Set<PluginPermission> granted = new java.util.HashSet<>(java.util.Set.of(
                 PluginPermission.LAUNCHER_UI_PROVIDER,
                 PluginPermission.NATIVE_CODE,
                 PluginPermission.PROCESS
         ));
+        granted.addAll(java.util.List.of(extraPermissions));
+        manager.setGrantedPermissions(UI_PROVIDER_ID, granted);
         manager.enablePlugin(UI_PROVIDER_ID);
         FXThreadTestSupport.runOnFxThread(manager::discoverPlugins);
-        UiFrontendProvider provider = new UiFrontendProvider(
+        return manager;
+    }
+
+    /// Creates one frontend provider around a fixture manager.
+    private UiFrontendProvider provider(Path temporaryDirectory, PluginManager manager) {
+        return new UiFrontendProvider(
                 manager,
-                localHome.resolve("ui-packages")
-        );
-        return new UiFrontendCoordinator(
-                provider,
-                manager,
-                (method, params) -> java.util.concurrent.CompletableFuture.completedFuture(
-                        UiFrontendCommandHandler.Reply.result(BridgeValue.nullValue())
-                ),
-                launch::launch
+                temporaryDirectory.resolve("home").resolve("ui-packages")
         );
     }
 
@@ -131,7 +200,7 @@ public final class UiFrontendCoordinatorTest {
                   "version": "1.0.0",
                   "type": "native",
                   "entrypoint": "bin/ui-provider",
-                  "permissions": ["launcher-ui-provider", "native-code", "process"],
+                  "permissions": ["launcher-ui-provider", "native-code", "process", "game-launch"],
                   "requiredPermissions": ["launcher-ui-provider", "native-code", "process"],
                   "launcherVersion": "*",
                   "runtime": "aura-ui",
@@ -178,6 +247,9 @@ public final class UiFrontendCoordinatorTest {
         /// Package root supplied on the most recent launch.
         private Path packageRoot;
 
+        /// Gated command handler supplied on the most recent launch.
+        private UiFrontendCommandHandler handler;
+
         /// Creates one recorder around a reusable session.
         RecordingLauncher(UiFrontendCoordinator.SupervisedSession session) {
             this.session = session;
@@ -193,6 +265,7 @@ public final class UiFrontendCoordinatorTest {
         ) throws UiFrontendProcessException {
             this.executable = executable;
             this.packageRoot = packageRoot;
+            this.handler = handler;
             return session;
         }
     }

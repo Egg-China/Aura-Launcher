@@ -464,7 +464,7 @@ public final class Launcher extends Application {
         );
         UiFrontendDescriptor started = coordinator.start(
                 coordinator.normalizeSelection(selection),
-                BridgeValue.nullValue()
+                NativeUiBridge.buildInitialSnapshot()
         );
         if (started.isJavaFx()) {
             LOG.warning("Native UI frontend unavailable; using JavaFX: "

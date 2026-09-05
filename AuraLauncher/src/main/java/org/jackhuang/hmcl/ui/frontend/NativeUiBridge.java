@@ -29,11 +29,20 @@ import org.jackhuang.hmcl.plugin.PluginUIRegistry;
 import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
 import org.jackhuang.hmcl.plugin.ui.frontend.process.UiFrontendCommandHandler;
 import org.jackhuang.hmcl.setting.Accounts;
+import org.jackhuang.hmcl.setting.DownloadSource;
 import org.jackhuang.hmcl.setting.GameDirectoryManager;
+import org.jackhuang.hmcl.setting.ProxyType;
 import org.jackhuang.hmcl.ui.FXUtils;
 import org.jackhuang.hmcl.ui.instances.Instances;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,6 +50,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.stream.Stream;
+
+import static org.jackhuang.hmcl.setting.SettingsManager.settings;
 
 /// Dispatches the `core.*` command surface for an isolated native UI frontend.
 ///
@@ -50,8 +62,23 @@ import java.util.concurrent.CompletionStage;
 @NotNullByDefault
 public final class NativeUiBridge {
 
+    /// Formatter rendering disk timestamps in the launcher time zone.
+    private static final DateTimeFormatter DISK_TIMESTAMP =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
+
     /// Prevents instantiation.
     private NativeUiBridge() {
+    }
+
+    /// Builds the initial snapshot for `ui.snapshot.replace`, degrading to null on failure.
+    ///
+    /// @return full snapshot value, or null when launcher state is not ready yet
+    public static BridgeValue buildInitialSnapshot() {
+        try {
+            return buildSnapshot();
+        } catch (RuntimeException failure) {
+            return BridgeValue.nullValue();
+        }
     }
 
     /// Handles one validated native-frontend command.
@@ -73,8 +100,7 @@ public final class NativeUiBridge {
             case "core.plugin.action":
                 return runPluginAction(params);
             case "core.settings.set":
-                return CompletableFuture.failedFuture(new UnsupportedOperationException(
-                        "settings writes follow the typed settings contract"));
+                return updateSettings(params);
             default:
                 return CompletableFuture.failedFuture(
                         new UnsupportedOperationException("Unsupported native UI command: " + method));
@@ -177,9 +203,9 @@ public final class NativeUiBridge {
         instance.put("name", BridgeValue.string(manifest.id().id()));
         instance.put("version", BridgeValue.string(manifest.id().id()));
         instance.put("loader", BridgeValue.string(inferLoader(manifest)));
-        instance.put("lastPlayed", BridgeValue.string("从未"));
+        instance.put("lastPlayed", BridgeValue.string(findLastPlayed(manifest.id())));
         instance.put("playTime", BridgeValue.string("0.0 小时"));
-        instance.put("modCount", BridgeValue.integer(0L));
+        instance.put("modCount", BridgeValue.integer(countMods(manifest.id())));
         instance.put("description", BridgeValue.string("由 Aura 启动器同步的本地实例。"));
         instance.put("isFavorite", BridgeValue.bool(false));
         return BridgeValue.map(instance);
@@ -262,9 +288,173 @@ public final class NativeUiBridge {
 
     /// Builds the currently exported settings allowlist.
     ///
-    /// @return token-free settings map; grows as typed settings land
+    /// @return token-free settings map mirroring the launcher settings manager
     private static BridgeValue buildSettingsSnapshot() {
-        return BridgeValue.map(Map.of());
+        Map<String, BridgeValue> exported = new LinkedHashMap<>();
+        exported.put("uiFrontend", stringOrEmpty(settings().selectedUiFrontendProperty().get()));
+        exported.put("downloadSource", BridgeValue.string(settings().fileDownloadSourceProperty().get().name()));
+        exported.put("proxyType", BridgeValue.string(settings().proxyTypeProperty().get().name()));
+        exported.put("proxyHost", stringOrEmpty(settings().proxyHostProperty().get()));
+        exported.put("proxyPort", BridgeValue.integer(settings().proxyPortProperty().get()));
+        exported.put("proxyUser", stringOrEmpty(settings().proxyUserProperty().get()));
+        exported.put("proxyPassword", stringOrEmpty(settings().proxyPasswordProperty().get()));
+        exported.put("hasProxyAuth", BridgeValue.bool(settings().hasProxyAuthProperty().get()));
+        exported.put("commonDirectory", stringOrEmpty(settings().commonDirectoryProperty().get()));
+        exported.put("themeBrightnessMode", stringOrEmpty(settings().themeBrightnessModeProperty().get()));
+        exported.put("defaultAddonSource", stringOrEmpty(settings().defaultAddonSourceProperty().get()));
+        exported.put("autoDownloadThreads", BridgeValue.bool(settings().autoDownloadThreadsProperty().get()));
+        exported.put("downloadThreads", BridgeValue.integer(settings().downloadThreadsProperty().get()));
+        exported.put("backgroundOpacity", BridgeValue.floating(settings().backgroundOpacityProperty().get()));
+        exported.put("launcherFontFamily", stringOrEmpty(settings().launcherFontFamilyProperty().get()));
+        exported.put("logFontFamily", stringOrEmpty(settings().logFontFamilyProperty().get()));
+        return BridgeValue.map(exported);
+    }
+
+    /// Applies one allowlisted settings write on the JavaFX thread.
+    ///
+    /// @param params command parameters carrying `key` and `value`
+    /// @return asynchronous reply applying the write after the response flushes
+    private static CompletionStage<UiFrontendCommandHandler.Reply> updateSettings(BridgeValue params) {
+        if (!(params instanceof BridgeValue.MapValue map)
+                || !(map.values().get("key") instanceof BridgeValue.StringValue key)
+                || key.value().isBlank()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("core.settings.set requires a non-blank string key"));
+        }
+        BridgeValue value = map.values().getOrDefault("value", BridgeValue.nullValue());
+        Runnable write = settingsWrite(key.value(), value);
+        return CompletableFuture.completedFuture(new UiFrontendCommandHandler.Reply(
+                BridgeValue.nullValue(),
+                () -> FXUtils.runInFX(write)
+        ));
+    }
+
+    /// Resolves one typed settings write by allowlisted key.
+    ///
+    /// @param key settings key
+    /// @param value typed replacement value
+    /// @return FX-thread write action
+    private static Runnable settingsWrite(String key, BridgeValue value) {
+        switch (key) {
+            case "uiFrontend":
+                return () -> settings().selectedUiFrontendProperty().set(requireString(key, value));
+            case "downloadSource":
+                return () -> settings().fileDownloadSourceProperty().set(
+                        DownloadSource.valueOf(requireString(key, value)));
+            case "proxyType":
+                return () -> settings().proxyTypeProperty().set(
+                        ProxyType.valueOf(requireString(key, value)));
+            case "proxyHost":
+                return () -> settings().proxyHostProperty().set(requireString(key, value));
+            case "proxyPort":
+                return () -> settings().proxyPortProperty().set(requireInteger(key, value));
+            case "proxyUser":
+                return () -> settings().proxyUserProperty().set(requireString(key, value));
+            case "proxyPassword":
+                return () -> settings().proxyPasswordProperty().set(requireString(key, value));
+            case "hasProxyAuth":
+                return () -> settings().hasProxyAuthProperty().set(requireBoolean(key, value));
+            case "commonDirectory":
+                return () -> settings().commonDirectoryProperty().set(requireString(key, value));
+            case "themeBrightnessMode":
+                return () -> settings().themeBrightnessModeProperty().set(requireString(key, value));
+            case "defaultAddonSource":
+                return () -> settings().defaultAddonSourceProperty().set(requireString(key, value));
+            case "autoDownloadThreads":
+                return () -> settings().autoDownloadThreadsProperty().set(requireBoolean(key, value));
+            case "downloadThreads":
+                return () -> settings().downloadThreadsProperty().set(requireInteger(key, value));
+            case "launcherFontFamily":
+                return () -> settings().launcherFontFamilyProperty().set(requireString(key, value));
+            case "logFontFamily":
+                return () -> settings().logFontFamilyProperty().set(requireString(key, value));
+            default:
+                throw new IllegalArgumentException("Unsupported settings key: " + key);
+        }
+    }
+
+    /// Counts `.jar` files inside one instance `mods` directory.
+    ///
+    /// @param instanceId game-instance identifier
+    /// @return bounded mod count, or zero when the directory is absent
+    private static long countMods(GameInstanceID instanceId) {
+        Path mods = GameDirectoryManager.getSelectedRepository().getRunDirectory(instanceId).resolve("mods");
+        try (Stream<Path> entries = Files.list(mods)) {
+            return entries
+                    .limit(10_000L)
+                    .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
+                    .count();
+        } catch (IOException failure) {
+            return 0L;
+        }
+    }
+
+    /// Finds the newest on-disk activity marker for one instance.
+    ///
+    /// @param instanceId game-instance identifier
+    /// @return formatted timestamp, or the never-played label
+    private static String findLastPlayed(GameInstanceID instanceId) {
+        Path root = GameDirectoryManager.getSelectedRepository().getRunDirectory(instanceId);
+        Instant latest = null;
+        try (Stream<Path> entries = Files.list(root)) {
+            for (Path entry : (Iterable<Path>) entries::iterator) {
+                try {
+                    Instant modified = Files.getLastModifiedTime(entry).toInstant();
+                    if (latest == null || modified.isAfter(latest)) {
+                        latest = modified;
+                    }
+                } catch (IOException ignored) {
+                    // Unreadable entries simply do not contribute to the marker.
+                }
+            }
+        } catch (IOException failure) {
+            return "从未";
+        }
+        return latest == null ? "从未" : DISK_TIMESTAMP.format(latest);
+    }
+
+    /// Wraps one nullable settings string for the wire.
+    ///
+    /// @param value nullable settings value
+    /// @return empty string for null, otherwise the value
+    private static BridgeValue stringOrEmpty(@Nullable String value) {
+        return BridgeValue.string(value == null ? "" : value);
+    }
+
+    /// Requires one string settings value.
+    ///
+    /// @param key settings key for diagnostics
+    /// @param value candidate value
+    /// @return unwrapped string
+    private static String requireString(String key, BridgeValue value) {
+        if (value instanceof BridgeValue.StringValue text) {
+            return text.value();
+        }
+        throw new IllegalArgumentException("Settings key " + key + " requires a string value");
+    }
+
+    /// Requires one integer settings value.
+    ///
+    /// @param key settings key for diagnostics
+    /// @param value candidate value
+    /// @return unwrapped integer
+    private static int requireInteger(String key, BridgeValue value) {
+        if (value instanceof BridgeValue.IntegerValue integer) {
+            return Math.toIntExact(integer.value());
+        }
+        throw new IllegalArgumentException("Settings key " + key + " requires an integer value");
+    }
+
+    /// Requires one boolean settings value.
+    ///
+    /// @param key settings key for diagnostics
+    /// @param value candidate value
+    /// @return unwrapped boolean
+    private static boolean requireBoolean(String key, BridgeValue value) {
+        if (value instanceof BridgeValue.BooleanValue bool) {
+            return bool.value();
+        }
+        throw new IllegalArgumentException("Settings key " + key + " requires a boolean value");
     }
 
     /// Selects one instance after extracting its identifier.
