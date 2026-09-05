@@ -167,6 +167,14 @@ public final class UiFrontendCoordinator {
         closeSessionQuietly();
     }
 
+    /// Returns the active native session termination when a supervised child currently owns the UI.
+    ///
+    /// @return terminal native-child state, or an empty value while JavaFX owns the UI
+    public Optional<CompletionStage<UiFrontendProcessSession.Termination>> activeSessionTermination() {
+        @Nullable SupervisedSession active = session;
+        return active == null ? Optional.empty() : Optional.of(active.termination());
+    }
+
     /// Requires one verified native package to remain permission-granted.
     ///
     /// @param descriptor verified native descriptor

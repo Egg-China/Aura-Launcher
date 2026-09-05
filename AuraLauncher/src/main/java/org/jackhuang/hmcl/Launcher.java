@@ -35,8 +35,14 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.jackhuang.hmcl.game.HMCLCacheRepository;
+import org.jackhuang.hmcl.plugin.PluginManager;
+import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
 import org.jackhuang.hmcl.plugin.protector.StartupReporter;
+import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendCoordinator;
+import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendDescriptor;
+import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendProvider;
 import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendSelector;
+import org.jackhuang.hmcl.plugin.ui.frontend.process.UiFrontendCommandHandler;
 import org.jackhuang.hmcl.setting.*;
 import org.jackhuang.hmcl.task.AsyncTaskExecutor;
 import org.jackhuang.hmcl.task.Schedulers;
@@ -73,6 +79,8 @@ import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
 import static org.jackhuang.hmcl.setting.SettingsManager.settings;
@@ -90,6 +98,12 @@ public final class Launcher extends Application {
 
     /// Cross-thread JavaFX startup outcome used to suppress false normal-shutdown reports.
     private static final StartupOutcome STARTUP_OUTCOME = new StartupOutcome();
+
+    /// Exact frontend selection resolved once in `main` and consumed by the JavaFX startup thread.
+    private static @Nullable String selectedUiFrontend;
+
+    /// Coordinator owning the supervised native frontend session, or `null` while JavaFX owns the UI.
+    private static @Nullable UiFrontendCoordinator uiFrontendCoordinator;
 
     /// Starts JavaFX initialization and schedules the remaining startup work after the logo's first paint.
     ///
@@ -119,6 +133,12 @@ public final class Launcher extends Application {
 
         try {
             initializeSettingsRuntime();
+
+            if (startSupervisedFrontend()) {
+                // JavaFX stays alive headless as the supervision host for the native child.
+                Platform.setImplicitExit(false);
+                return;
+            }
 
             // https://lapcatsoftware.com/articles/app-translocation.html
             if (OperatingSystem.CURRENT_OS == OperatingSystem.MACOS
@@ -302,9 +322,14 @@ public final class Launcher extends Application {
         }
     }
 
+    /// Releases controllers, the supervised native frontend, settings, and logging during JavaFX shutdown.
     @Override
     public void stop() throws Exception {
         Controllers.onApplicationStop();
+        @Nullable UiFrontendCoordinator coordinator = uiFrontendCoordinator;
+        if (coordinator != null) {
+            coordinator.stop();
+        }
         SettingsManager.shutdown();
         LOG.shutdown();
     }
@@ -378,9 +403,8 @@ public final class Launcher extends Application {
                 EntryPoint.exit(1);
             }
 
-            // Full supervised native-frontend startup is wired in a later phase; validation runs now so malformed
-            // selections fail before JavaFX bootstrap.
-            resolveUiFrontend(args);
+            // Validate before JavaFX bootstrap; the JavaFX thread consumes the selection after plugin discovery.
+            selectedUiFrontend = resolveUiFrontend(args);
 
             StartupReporter.reportCoreReady();
             setupJavaFXVMOptions();
@@ -393,12 +417,13 @@ public final class Launcher extends Application {
         }
     }
 
-    /// Resolves the visible UI frontend for this process, logging it before supervised startup wiring lands.
+    /// Resolves the exact visible UI frontend selection for this process.
     ///
-    /// Exit occurs when the persisted or command-line selection is malformed; valid IDs are logged for diagnosis.
+    /// Exit occurs when the persisted or command-line selection is malformed; valid IDs are logged and returned.
     ///
     /// @param args launcher command-line arguments
-    private static void resolveUiFrontend(String[] args) {
+    /// @return exact frontend ID for this process
+    private static String resolveUiFrontend(String[] args) {
         String selection;
         try {
             selection = UiFrontendSelector.select(args, settings().selectedUiFrontendProperty().get());
@@ -406,9 +431,67 @@ public final class Launcher extends Application {
             LOG.error("Invalid UI frontend selection", e);
             SwingUtils.showErrorDialog(e.getMessage());
             EntryPoint.exit(1);
-            return;
+            return UiFrontendDescriptor.JAVAFX_ID;
         }
         LOG.info("Selected UI Frontend: " + selection);
+        return selection;
+    }
+
+    /// Starts the selected native frontend after plugin discovery and reports whether it owns this process UI.
+    ///
+    /// JavaFX keeps running headless as the supervision host; the launcher exits when the native child terminates.
+    ///
+    /// @return whether a supervised native frontend now owns the visible UI
+    private static boolean startSupervisedFrontend() {
+        String selection = Objects.requireNonNullElse(selectedUiFrontend, UiFrontendDescriptor.JAVAFX_ID);
+        if (UiFrontendDescriptor.JAVAFX_ID.equals(selection)) {
+            return false;
+        }
+        PluginManager pluginManager = PluginManager.getInstance();
+        UiFrontendProvider provider = new UiFrontendProvider(
+                pluginManager,
+                Metadata.AURA_LOCAL_HOME.resolve("ui-packages")
+        );
+        UiFrontendCoordinator coordinator = new UiFrontendCoordinator(
+                provider,
+                pluginManager,
+                Launcher::handleNativeFrontendCommand
+        );
+        UiFrontendDescriptor started = coordinator.start(
+                coordinator.normalizeSelection(selection),
+                BridgeValue.nullValue()
+        );
+        if (started.isJavaFx()) {
+            LOG.warning("Native UI frontend unavailable; using JavaFX: "
+                    + coordinator.getFallbackReason().orElse("unknown reason"));
+            return false;
+        }
+        LOG.info("Native UI frontend ready: " + started.getId());
+        uiFrontendCoordinator = coordinator;
+        StartupReporter.reportUiReady();
+        coordinator.activeSessionTermination().ifPresent(termination -> termination.thenRun(() -> {
+            LOG.info("Native UI frontend exited; stopping launcher");
+            coordinator.stop();
+            EntryPoint.exit(0);
+        }));
+        return true;
+    }
+
+    /// Handles one validated native-frontend command until richer launcher services are wired.
+    ///
+    /// @param method fixed `core.*` command method
+    /// @param params token-free command parameters
+    /// @return asynchronous reply, currently only for application shutdown
+    private static CompletionStage<UiFrontendCommandHandler.Reply> handleNativeFrontendCommand(
+            String method, BridgeValue params) {
+        if ("core.app.shutdown".equals(method)) {
+            return CompletableFuture.completedFuture(new UiFrontendCommandHandler.Reply(
+                    BridgeValue.nullValue(),
+                    () -> EntryPoint.exit(0)
+            ));
+        }
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("Unsupported native UI command: " + method));
     }
 
     /// Offers one pre-settings-load import when Aura is uninitialized and HMCL CE settings exist.
