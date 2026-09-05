@@ -405,6 +405,10 @@ public final class Launcher extends Application {
 
             // Validate before JavaFX bootstrap; the JavaFX thread consumes the selection after plugin discovery.
             selectedUiFrontend = resolveUiFrontend(args);
+            if (UiFrontendSelector.forcesBuiltIn(args)) {
+                // The explicit built-in override is the rescue switch; persist it for subsequent normal starts.
+                settings().selectedUiFrontendProperty().set(selectedUiFrontend);
+            }
 
             StartupReporter.reportCoreReady();
             setupJavaFXVMOptions();

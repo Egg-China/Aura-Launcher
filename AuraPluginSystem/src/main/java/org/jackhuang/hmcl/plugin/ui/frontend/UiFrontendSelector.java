@@ -59,6 +59,32 @@ public final class UiFrontendSelector {
         return override == null ? persisted : override;
     }
 
+    /// Returns whether the command line explicitly forces the built-in frontend for this process.
+    ///
+    /// An explicit built-in override is also the documented rescue switch: the launcher persists the default
+    /// selection so the next ordinary start uses JavaFX again without editing settings files.
+    ///
+    /// @param args launcher arguments after restart-barrier stripping
+    /// @return whether one `--ui` override selects the built-in frontend
+    /// @throws IllegalArgumentException when an `--ui` value is malformed, duplicated, or not a canonical ID
+    public static boolean forcesBuiltIn(String @Nullable [] args) {
+        return args != null && UiFrontendDescriptor.JAVAFX_ID.equals(select(args, UiFrontendDescriptor.JAVAFX_ID))
+                && hasOverride(args);
+    }
+
+    /// Returns whether the command line carries any `--ui` override.
+    ///
+    /// @param args launcher arguments after restart-barrier stripping
+    /// @return whether at least one `--ui` argument is present
+    private static boolean hasOverride(String @Nullable [] args) {
+        for (@Nullable String argument : args) {
+            if (argument != null && argument.startsWith(FLAG)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// Requires one command-line selection to be the built-in ID or a canonical executable plugin ID.
     ///
     /// @param value raw value after `--ui=`

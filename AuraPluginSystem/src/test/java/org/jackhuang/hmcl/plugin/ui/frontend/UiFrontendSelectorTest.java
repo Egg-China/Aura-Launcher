@@ -19,6 +19,8 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /// Verifies command-line frontend selection parsing without touching installed packages.
@@ -58,6 +60,29 @@ public final class UiFrontendSelectorTest {
                 new String[]{"--ui=Not Canonical"},
                 "javafx"
         ));
+    }
+
+    /// Detects an explicit built-in override as the persistent rescue switch.
+    @Test
+    public void explicitBuiltInOverrideForcesPersistence() {
+        assertTrue(UiFrontendSelector.forcesBuiltIn(
+                new String[]{"--ui=javafx"}
+        ));
+        assertTrue(UiFrontendSelector.forcesBuiltIn(
+                new String[]{"--ui="}
+        ));
+    }
+
+    /// Keeps native overrides and persisted built-in selections out of the rescue path.
+    @Test
+    public void nonRescueSelectionsDoNotForcePersistence() {
+        assertFalse(UiFrontendSelector.forcesBuiltIn(
+                new String[]{"--ui=dev.aura.test.ui"}
+        ));
+        assertFalse(UiFrontendSelector.forcesBuiltIn(
+                new String[]{"--other-flag"}
+        ));
+        assertFalse(UiFrontendSelector.forcesBuiltIn(null));
     }
 
     /// Rejects multiple selections because one process cannot own two visible frontends.
