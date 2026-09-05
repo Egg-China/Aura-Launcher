@@ -468,6 +468,8 @@ public final class PluginManager {
     ///
     /// Holding the lock through lifecycle construction keeps the final permission snapshot and package identity
     /// unchanged between policy evaluation and the first plugin callback.
+    /// Native UI-provider packages receive compatibility-driven management status only; their executable
+    /// lifecycle stays owned by the UI frontend coordinator.
     ///
     /// @throws IOException if package recovery, permission reload, or package discovery fails
     private void discoverPluginsLocked() throws IOException {
@@ -502,6 +504,26 @@ public final class PluginManager {
 
         Map<String, PluginVisitState> visitStates = new HashMap<>();
         Set<String> failed = new HashSet<>();
+        // Native UI providers own no Java lifecycle: publish exact status without constructing a class loader.
+        for (PluginPackageCandidate candidate : candidates.values()) {
+            if (candidate.manifest.getPluginKind() != PluginKind.UI_PROVIDER) {
+                continue;
+            }
+            PluginCompatibilityResult uiCompatibility = evaluateCompatibility(candidate.manifest);
+            if (!uiCompatibility.isCompatible()) {
+                if (uiCompatibility.status() == PluginCompatibilityStatus.UNSUPPORTED_SCHEMA) {
+                    enabledStates.remove(candidate.manifest.getId());
+                }
+                setRuntimeStatus(
+                        candidate.identity,
+                        runtimeStatusFor(uiCompatibility),
+                        uiCompatibility.detail()
+                );
+                continue;
+            }
+            setRuntimeStatus(candidate.identity, PluginRuntimeStatus.INSTALLED_DISABLED, null);
+        }
+
         @Unmodifiable Map<String, RuntimeProviderBinding> startupRuntimeBindings = runtimeBindingStore.readStrict();
         for (PluginKind startupKind : List.of(PluginKind.RUNTIME_PROVIDER, PluginKind.NORMAL)) {
             for (PluginPackageCandidate candidate : candidates.values()) {
