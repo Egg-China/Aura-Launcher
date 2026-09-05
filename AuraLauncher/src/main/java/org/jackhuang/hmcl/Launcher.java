@@ -43,6 +43,7 @@ import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendDescriptor;
 import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendProvider;
 import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendSelector;
 import org.jackhuang.hmcl.plugin.ui.frontend.process.UiFrontendCommandHandler;
+import org.jackhuang.hmcl.ui.frontend.NativeUiBridge;
 import org.jackhuang.hmcl.setting.*;
 import org.jackhuang.hmcl.task.AsyncTaskExecutor;
 import org.jackhuang.hmcl.task.Schedulers;
@@ -481,11 +482,11 @@ public final class Launcher extends Application {
         return true;
     }
 
-    /// Handles one validated native-frontend command until richer launcher services are wired.
+    /// Handles one validated native-frontend command.
     ///
     /// @param method fixed `core.*` command method
     /// @param params token-free command parameters
-    /// @return asynchronous reply, currently only for application shutdown
+    /// @return asynchronous reply routing into the native UI bridge
     private static CompletionStage<UiFrontendCommandHandler.Reply> handleNativeFrontendCommand(
             String method, BridgeValue params) {
         if ("core.app.shutdown".equals(method)) {
@@ -494,8 +495,7 @@ public final class Launcher extends Application {
                     () -> EntryPoint.exit(0)
             ));
         }
-        return CompletableFuture.failedFuture(
-                new UnsupportedOperationException("Unsupported native UI command: " + method));
+        return NativeUiBridge.handle(method, params);
     }
 
     /// Offers one pre-settings-load import when Aura is uninitialized and HMCL CE settings exist.
