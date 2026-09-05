@@ -25,6 +25,7 @@ import org.jackhuang.hmcl.game.GameInstanceID;
 import org.jackhuang.hmcl.game.GameInstanceManifest;
 import org.jackhuang.hmcl.game.GameInstancePatch;
 import org.jackhuang.hmcl.game.HMCLGameRepository;
+import org.jackhuang.hmcl.plugin.PluginUIRegistry;
 import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
 import org.jackhuang.hmcl.plugin.ui.frontend.process.UiFrontendCommandHandler;
 import org.jackhuang.hmcl.setting.Accounts;
@@ -70,8 +71,7 @@ public final class NativeUiBridge {
             case "core.instance.launch":
                 return launchInstance(params);
             case "core.plugin.action":
-                return CompletableFuture.failedFuture(new UnsupportedOperationException(
-                        "plugin actions arrive with the contribution registry"));
+                return runPluginAction(params);
             case "core.settings.set":
                 return CompletableFuture.failedFuture(new UnsupportedOperationException(
                         "settings writes follow the typed settings contract"));
@@ -89,8 +89,72 @@ public final class NativeUiBridge {
         snapshot.put("instances", buildInstances());
         snapshot.put("accounts", buildAccounts());
         snapshot.put("settings", buildSettingsSnapshot());
-        snapshot.put("pluginContributions", BridgeValue.array(List.of()));
+        snapshot.put("pluginContributions", buildContributions());
         return BridgeValue.map(snapshot);
+    }
+
+    /// Builds the plugin contribution list rendered by the Modern UI sidebar.
+    ///
+    /// @return immutable array of sidebar and button contribution maps
+    private static BridgeValue buildContributions() {
+        List<BridgeValue> contributions = new ArrayList<>();
+        for (PluginUIRegistry.SidebarItem item : PluginUIRegistry.getSidebarItems()) {
+            contributions.add(contributionMap(item.getContributionId(), item.getPluginId(),
+                    "sidebar", item.getTitle()));
+        }
+        for (PluginUIRegistry.ButtonItem item : PluginUIRegistry.getButtonItems()) {
+            contributions.add(contributionMap(item.getContributionId(), item.getPluginId(),
+                    "button", item.getTitle()));
+        }
+        return BridgeValue.array(contributions);
+    }
+
+    /// Formats one contribution entry for the wire snapshot.
+    ///
+    /// @param id stable contribution identifier
+    /// @param pluginId owning plugin identifier
+    /// @param kind contribution family
+    /// @param label displayed label
+    /// @return token-free contribution map
+    private static BridgeValue contributionMap(String id, String pluginId, String kind, String label) {
+        Map<String, BridgeValue> entry = new LinkedHashMap<>();
+        entry.put("id", BridgeValue.string(id));
+        entry.put("pluginId", BridgeValue.string(pluginId));
+        entry.put("kind", BridgeValue.string(kind));
+        entry.put("label", BridgeValue.string(label));
+        return BridgeValue.map(entry);
+    }
+
+    /// Runs one registered contribution action by its stable identifier.
+    ///
+    /// @param params command parameters carrying `id`
+    /// @return asynchronous reply performing the FX-thread action
+    private static CompletionStage<UiFrontendCommandHandler.Reply> runPluginAction(BridgeValue params) {
+        String contributionId = extractStringParameter(params, "id");
+        Runnable action = null;
+        for (PluginUIRegistry.ButtonItem item : PluginUIRegistry.getButtonItems()) {
+            if (item.getContributionId().equals(contributionId)) {
+                action = item.getOnAction();
+                break;
+            }
+        }
+        if (action == null) {
+            for (PluginUIRegistry.SidebarItem item : PluginUIRegistry.getSidebarItems()) {
+                if (item.getContributionId().equals(contributionId)) {
+                    action = item.getOnAction();
+                    break;
+                }
+            }
+        }
+        Runnable finalAction = action;
+        if (finalAction == null) {
+            return CompletableFuture.failedFuture(
+                    new IllegalArgumentException("Unknown plugin contribution: " + contributionId));
+        }
+        return CompletableFuture.completedFuture(new UiFrontendCommandHandler.Reply(
+                BridgeValue.nullValue(),
+                () -> FXUtils.runInFX(finalAction)
+        ));
     }
 
     /// Lists every displayable instance of the selected game directory.
@@ -232,17 +296,26 @@ public final class NativeUiBridge {
         ));
     }
 
-    /// Extracts the required `id` string parameter.
+    /// Extracts the required `id` string parameter as a game instance identifier.
     ///
     /// @param params command parameters
     /// @return parsed game-instance identifier
     private static GameInstanceID extractInstanceId(BridgeValue params) {
+        return new GameInstanceID(extractStringParameter(params, "id"));
+    }
+
+    /// Extracts one required non-blank string parameter.
+    ///
+    /// @param params command parameters
+    /// @param key parameter key
+    /// @return parsed non-blank string value
+    private static String extractStringParameter(BridgeValue params, String key) {
         if (params instanceof BridgeValue.MapValue map) {
-            BridgeValue id = map.values().get("id");
-            if (id instanceof BridgeValue.StringValue text && !text.value().isBlank()) {
-                return new GameInstanceID(text.value());
+            BridgeValue value = map.values().get(key);
+            if (value instanceof BridgeValue.StringValue text && !text.value().isBlank()) {
+                return text.value();
             }
         }
-        throw new IllegalArgumentException("core.instance commands require a non-blank string id");
+        throw new IllegalArgumentException("core command requires a non-blank string " + key);
     }
 }
