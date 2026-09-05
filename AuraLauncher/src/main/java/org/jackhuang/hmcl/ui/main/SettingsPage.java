@@ -32,6 +32,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import org.jackhuang.hmcl.Metadata;
+import org.jackhuang.hmcl.plugin.PluginManager;
+import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendDescriptor;
+import org.jackhuang.hmcl.plugin.ui.frontend.UiFrontendProvider;
 import org.jackhuang.hmcl.setting.LegacyHmclCeDataImporter;
 import org.jackhuang.hmcl.setting.LegacyHmclCeImportResult;
 import org.jackhuang.hmcl.task.Schedulers;
@@ -62,6 +65,7 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -196,6 +200,41 @@ public final class SettingsPage extends ScrollPane {
                 }
 
                 rootPane.getChildren().addAll(ComponentList.createComponentListTitle(i18n("settings.launcher.language")), languagePaneList);
+            }
+
+            {
+                ComponentList frontendPaneList = new ComponentList();
+                {
+                    LineSelectButton<UiFrontendDescriptor> chooseFrontendPane = new LineSelectButton<>();
+                    chooseFrontendPane.setTitle(i18n("settings.launcher.ui_frontend"));
+                    chooseFrontendPane.setSubtitle(i18n("settings.take_effect_after_restart"));
+                    UiFrontendProvider frontendProvider = new UiFrontendProvider(
+                            PluginManager.getInstance(),
+                            Metadata.AURA_LOCAL_HOME.resolve("ui-packages")
+                    );
+                    chooseFrontendPane.setItems(frontendProvider.installedFrontends().values().stream()
+                            .sorted(Comparator.comparing(UiFrontendDescriptor::getDisplayName))
+                            .toList());
+                    chooseFrontendPane.setNullSafeConverter(UiFrontendDescriptor::getDisplayName);
+                    ObjectProperty<UiFrontendDescriptor> frontendSelection = chooseFrontendPane.valueProperty();
+                    StringProperty selectedFrontendId = settings().selectedUiFrontendProperty();
+                    frontendSelection.set(frontendProvider.installedFrontends().get(selectedFrontendId.get()));
+                    frontendSelection.addListener((observable, previous, selected) -> {
+                        if (selected != null) {
+                            selectedFrontendId.set(selected.getId());
+                        }
+                    });
+                    selectedFrontendId.addListener((observable, previous, selectedId) -> {
+                        UiFrontendDescriptor selected = frontendProvider.installedFrontends().get(selectedId);
+                        if (selected != null && frontendSelection.get() != selected) {
+                            frontendSelection.set(selected);
+                        }
+                    });
+
+                    frontendPaneList.getContent().add(chooseFrontendPane);
+                }
+
+                rootPane.getChildren().addAll(ComponentList.createComponentListTitle(i18n("settings.launcher.ui_frontend")), frontendPaneList);
             }
 
             {
