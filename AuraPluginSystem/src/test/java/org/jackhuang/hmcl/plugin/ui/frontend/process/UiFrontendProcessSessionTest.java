@@ -736,6 +736,7 @@ final class UiFrontendProcessSessionTest {
             Thread.currentThread().interrupt();
         }
     }
+
     /// Waits until private admission state reaches an exact count solely to synchronize a concurrency test.
     ///
     /// @param session live session
