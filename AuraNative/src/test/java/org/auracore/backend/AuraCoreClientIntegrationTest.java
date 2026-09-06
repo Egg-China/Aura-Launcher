@@ -75,4 +75,30 @@ class AuraCoreClientIntegrationTest {
             assertTrue(!afterDelete.toString().contains("JVM Probe"), "deleted instance must disappear");
         }
     }
+    /// Adds, selects, and removes an offline account through the backend.
+    ///
+    /// @throws Exception when any native stage fails
+    @Test
+    void managesOfflineAccount() throws Exception {
+        final String override = System.getenv(AuraCoreLibraryLoader.LIBRARY_PATH_PROPERTY);
+        Assumptions.assumeTrue(override != null && !override.isBlank(),
+                "AuraCore native backend is not configured");
+        Assumptions.assumeTrue(Files.isRegularFile(Path.of(override)),
+                "Configured AuraCore native backend does not exist");
+
+        final AuraCoreNative nativeLibrary = AuraCoreNative.load(override);
+        try (AuraCoreClient client = new AuraCoreClient(nativeLibrary, DATA_DIRECTORY)) {
+            final JsonElement added = client.addOfflineAccount("JVM Tester").get(30, TimeUnit.SECONDS);
+            assertTrue(added.isJsonObject(), "add_offline_account must return an object");
+            assertTrue(added.getAsJsonObject().has("profileName"), "account reply must carry the profile name");
+
+            client.setDefaultAccount("JVM Tester").get(30, TimeUnit.SECONDS);
+            final JsonElement accounts = client.listAccounts().get(30, TimeUnit.SECONDS);
+            assertTrue(accounts.toString().contains("JVM Tester"), "account list must contain the profile");
+
+            client.removeAccount("JVM Tester").get(30, TimeUnit.SECONDS);
+            final JsonElement afterRemove = client.listAccounts().get(30, TimeUnit.SECONDS);
+            assertTrue(!afterRemove.toString().contains("JVM Tester"), "removed account must disappear");
+        }
+    }
 }

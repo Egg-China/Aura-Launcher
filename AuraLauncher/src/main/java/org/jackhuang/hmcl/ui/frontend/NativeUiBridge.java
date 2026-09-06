@@ -103,6 +103,14 @@ public final class NativeUiBridge {
             case "core.auracore.status":
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
+            case "core.auracore.accounts.list":
+                return listAuraCoreAccounts();
+            case "core.auracore.accounts.add-offline":
+                return addAuraCoreOfflineAccount(params);
+            case "core.auracore.accounts.remove":
+                return removeAuraCoreAccount(params);
+            case "core.auracore.accounts.set-default":
+                return setAuraCoreDefaultAccount(params);
             case "core.auracore.instance.create":
                 return createAuraCoreInstance(params);
             case "core.auracore.migrate":
@@ -198,6 +206,90 @@ public final class NativeUiBridge {
                     fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
                     return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
                 });
+    }
+
+    /// Lists AuraCore accounts when the native engine is selected.
+    ///
+    /// @return asynchronous reply carrying the backend account array
+    private static CompletionStage<UiFrontendCommandHandler.Reply> listAuraCoreAccounts() {
+        return AuraCoreEngineManager.getInstance().start().listAccounts()
+                .thenApply(accounts -> UiFrontendCommandHandler.Reply.result(toBridgeValue(accounts)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Adds an offline account to the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `username`
+    /// @return asynchronous reply carrying the creation result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> addAuraCoreOfflineAccount(BridgeValue params) {
+        final String username = extractStringParameter(params, "username");
+        return AuraCoreEngineManager.getInstance().start().addOfflineAccount(username)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Removes an AuraCore account by profile name.
+    ///
+    /// @param params command parameters carrying `profile`
+    /// @return asynchronous reply carrying the removal result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> removeAuraCoreAccount(BridgeValue params) {
+        final String profile = extractStringParameter(params, "profile");
+        return AuraCoreEngineManager.getInstance().start().removeAccount(profile)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Selects the AuraCore account used by future launches.
+    ///
+    /// @param params command parameters carrying `profile`
+    /// @return asynchronous reply carrying the selection result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> setAuraCoreDefaultAccount(BridgeValue params) {
+        final String profile = extractStringParameter(params, "profile");
+        return AuraCoreEngineManager.getInstance().start().setDefaultAccount(profile)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Converts one parsed backend JSON reply into a bridge value.
+    ///
+    /// @param element the Gson element returned by the backend
+    /// @return the bridge representation of the same JSON value
+    private static BridgeValue toBridgeValue(com.google.gson.JsonElement element) {
+        if (element == null || element.isJsonNull()) {
+            return BridgeValue.nullValue();
+        }
+        if (element.isJsonPrimitive()) {
+            final com.google.gson.JsonPrimitive primitive = element.getAsJsonPrimitive();
+            if (primitive.isBoolean()) {
+                return BridgeValue.bool(primitive.getAsBoolean());
+            }
+            if (primitive.isNumber()) {
+                return BridgeValue.floating(primitive.getAsNumber().doubleValue());
+            }
+            return BridgeValue.string(primitive.getAsString());
+        }
+        if (element.isJsonArray()) {
+            List<BridgeValue> values = new ArrayList<>();
+            for (com.google.gson.JsonElement entry : element.getAsJsonArray()) {
+                values.add(toBridgeValue(entry));
+            }
+            return BridgeValue.array(values);
+        }
+        Map<String, BridgeValue> fields = new LinkedHashMap<>();
+        for (Map.Entry<String, com.google.gson.JsonElement> entry : element.getAsJsonObject().entrySet()) {
+            fields.put(entry.getKey(), toBridgeValue(entry.getValue()));
+        }
+        return BridgeValue.map(fields);
+    }
+
+    /// Builds the typed error reply used by AuraCore bridge commands.
+    ///
+    /// @param message the backend failure text
+    /// @return reply carrying `{ error }`
+    private static UiFrontendCommandHandler.Reply auraCoreError(@Nullable String message) {
+        Map<String, BridgeValue> fields = new LinkedHashMap<>();
+        fields.put("error", BridgeValue.string(message == null ? "unknown AuraCore failure" : message));
+        return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
     }
 
     /// Builds the full launcher state snapshot consumed by the Modern UI.

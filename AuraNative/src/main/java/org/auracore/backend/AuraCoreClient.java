@@ -248,6 +248,45 @@ public final class AuraCoreClient implements AutoCloseable {
         });
     }
 
+    /// Creates and stores an offline account.
+    ///
+    /// @param username the offline profile name
+    /// @return the parsed creation reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> addOfflineAccount(String username) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_add_offline_account(handle(), username, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
+    /// Removes an account by profile name.
+    ///
+    /// @param profileName the stored account profile name
+    /// @return the parsed removal reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> removeAccount(String profileName) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_remove_account(handle(), profileName, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
+    /// Selects the account used by future launches.
+    ///
+    /// @param profileName the stored account profile name
+    /// @return the parsed selection reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> setDefaultAccount(String profileName) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_set_default_account(handle(), profileName, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
     /// Destroys the backend after pending work completes.
     @Override
     public void close() {
