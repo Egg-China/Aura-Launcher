@@ -116,6 +116,18 @@ public final class AuraCoreClient implements AutoCloseable {
         });
     }
 
+    /// Reads one instance by identifier.
+    ///
+    /// @param id the instance identifier
+    /// @return the parsed instance object
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> getInstance(String id) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_get_instance(handle(), id, reference);
+            return read(status, handle(), reference);
+        });
+    }
     /// Reads the newest launch log lines of an instance.
     ///
     /// @param id the instance identifier
@@ -219,6 +231,18 @@ public final class AuraCoreClient implements AutoCloseable {
         return submit(() -> {
             final PointerByReference reference = new PointerByReference();
             final int status = nativeLibrary.auracore_stop_instance(handle(), id, reference);
+            return read(status, handle(), reference);
+        });
+    }
+    /// Deletes an instance directory with its shortcuts and group membership.
+    ///
+    /// @param id the instance identifier
+    /// @return the parsed delete reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> deleteInstance(String id) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_delete_instance(handle(), id, reference);
             return read(status, handle(), reference);
         });
     }

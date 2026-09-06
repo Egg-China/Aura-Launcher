@@ -103,7 +103,8 @@ public final class NativeUiBridge {
             case "core.auracore.status":
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
-            case "core.auracore.migrate":
+            case "core.auracore.instance.create":
+                return createAuraCoreInstance(params);            case "core.auracore.migrate":
                 return migrateAuraCoreSettings();            case "core.settings.set":
                 return updateSettings(params);
             default:
@@ -167,6 +168,32 @@ public final class NativeUiBridge {
             case SOCKS -> "Sock";
             case SYSTEM -> null;
         };
+    }
+    /// Creates a vanilla instance through the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `name` and `version`
+    /// @return asynchronous reply carrying the creation task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> createAuraCoreInstance(BridgeValue params) {
+        final String name = extractStringParameter(params, "name");
+        final String gameVersion = extractStringParameter(params, "version");
+        final String group;
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get("group") instanceof BridgeValue.StringValue groupValue
+                && !groupValue.value().isBlank()) {
+            group = groupValue.value();
+        } else {
+            group = null;
+        }
+        return AuraCoreEngineManager.getInstance().start().createInstance(name, gameVersion, group)
+                .thenApply(reply -> UiFrontendCommandHandler.Reply.result(BridgeValue.string(
+                        reply.isJsonObject() && reply.getAsJsonObject().has("taskId")
+                                ? reply.getAsJsonObject().get("taskId").getAsString()
+                                : "")))
+                .exceptionally(failure -> {
+                    Map<String, BridgeValue> fields = new LinkedHashMap<>();
+                    fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+                    return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+                });
     }
     /// Builds the full launcher state snapshot consumed by the Modern UI.
     ///
