@@ -43,6 +43,7 @@ class AuraCoreClientIntegrationTest {
             assertTrue(instances.isJsonArray(), "list_instances must return a JSON array");
         }
     }
+
     /// Creates, waits for, and deletes a vanilla instance through the backend.
     ///
     /// @throws Exception when any native stage fails

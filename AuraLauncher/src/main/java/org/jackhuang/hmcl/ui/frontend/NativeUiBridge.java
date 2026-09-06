@@ -104,8 +104,10 @@ public final class NativeUiBridge {
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
             case "core.auracore.instance.create":
-                return createAuraCoreInstance(params);            case "core.auracore.migrate":
-                return migrateAuraCoreSettings();            case "core.settings.set":
+                return createAuraCoreInstance(params);
+            case "core.auracore.migrate":
+                return migrateAuraCoreSettings();
+            case "core.settings.set":
                 return updateSettings(params);
             default:
                 return CompletableFuture.failedFuture(
@@ -157,6 +159,7 @@ public final class NativeUiBridge {
             return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
         });
     }
+
     /// Maps a launcher proxy type onto the AuraCore backend setting value.
     ///
     /// @param type the launcher-side proxy type
@@ -169,6 +172,7 @@ public final class NativeUiBridge {
             case SYSTEM -> null;
         };
     }
+
     /// Creates a vanilla instance through the AuraCore backend.
     ///
     /// @param params command parameters carrying `name` and `version`
@@ -195,6 +199,7 @@ public final class NativeUiBridge {
                     return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
                 });
     }
+
     /// Builds the full launcher state snapshot consumed by the Modern UI.
     ///
     /// @return token-free map with instances, accounts, settings, and contributions
@@ -432,7 +437,8 @@ public final class NativeUiBridge {
                     throw new IllegalArgumentException("Unsupported core engine: " + engine);
                 }
                 return () -> settings().coreEngineProperty().set(engine);
-            }            case "uiFrontend":
+            }
+            case "uiFrontend":
                 return () -> settings().selectedUiFrontendProperty().set(requireString(key, value));
             case "downloadSource":
                 return () -> settings().fileDownloadSourceProperty().set(

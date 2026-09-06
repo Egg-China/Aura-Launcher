@@ -236,36 +236,36 @@ public final class SettingsPage extends ScrollPane {
                 }
 
                 rootPane.getChildren().addAll(ComponentList.createComponentListTitle(i18n("settings.launcher.ui_frontend")), frontendPaneList);
-            {
-                ComponentList coreEnginePaneList = new ComponentList();
                 {
-                    LineSelectButton<String> chooseCoreEnginePane = new LineSelectButton<>();
-                    chooseCoreEnginePane.setTitle(i18n("settings.launcher.core_engine"));
-                    chooseCoreEnginePane.setSubtitle(i18n("settings.launcher.core_engine.subtitle"));
-                    StringProperty selectedCoreEngine = settings().coreEngineProperty();
-                    chooseCoreEnginePane.setItems(List.of(
-                            AuraCoreEngineManager.ENGINE_HMCL,
-                            AuraCoreEngineManager.ENGINE_AURACORE));
-                    chooseCoreEnginePane.setNullSafeConverter(engine -> switch (engine) {
-                        case AuraCoreEngineManager.ENGINE_AURACORE -> i18n("settings.launcher.core_engine.auracore");
-                        default -> i18n("settings.launcher.core_engine.hmcl");
-                    });
-                    chooseCoreEnginePane.valueProperty().set(selectedCoreEngine.get());
-                    chooseCoreEnginePane.valueProperty().addListener((observable, previous, selected) -> {
-                        if (selected != null) {
-                            selectedCoreEngine.set(selected);
-                        }
-                    });
-                    selectedCoreEngine.addListener((observable, previous, selected) -> {
-                        if (selected != null && chooseCoreEnginePane.valueProperty().get() != selected) {
-                            chooseCoreEnginePane.valueProperty().set(selected);
-                        }
-                    });
-                    coreEnginePaneList.getContent().add(chooseCoreEnginePane);
-                }
+                    ComponentList coreEnginePaneList = new ComponentList();
+                    {
+                        LineSelectButton<String> chooseCoreEnginePane = new LineSelectButton<>();
+                        chooseCoreEnginePane.setTitle(i18n("settings.launcher.core_engine"));
+                        chooseCoreEnginePane.setSubtitle(i18n("settings.launcher.core_engine.subtitle"));
+                        StringProperty selectedCoreEngine = settings().coreEngineProperty();
+                        chooseCoreEnginePane.setItems(List.of(
+                                AuraCoreEngineManager.ENGINE_HMCL,
+                                AuraCoreEngineManager.ENGINE_AURACORE));
+                        chooseCoreEnginePane.setNullSafeConverter(engine -> switch (engine) {
+                            case AuraCoreEngineManager.ENGINE_AURACORE -> i18n("settings.launcher.core_engine.auracore");
+                            default -> i18n("settings.launcher.core_engine.hmcl");
+                        });
+                        chooseCoreEnginePane.valueProperty().set(selectedCoreEngine.get());
+                        chooseCoreEnginePane.valueProperty().addListener((observable, previous, selected) -> {
+                            if (selected != null) {
+                                selectedCoreEngine.set(selected);
+                            }
+                        });
+                        selectedCoreEngine.addListener((observable, previous, selected) -> {
+                            if (selected != null && chooseCoreEnginePane.valueProperty().get() != selected) {
+                                chooseCoreEnginePane.valueProperty().set(selected);
+                            }
+                        });
+                        coreEnginePaneList.getContent().add(chooseCoreEnginePane);
+                    }
 
-                rootPane.getChildren().addAll(ComponentList.createComponentListTitle(i18n("settings.launcher.core_engine")), coreEnginePaneList);
-            }
+                    rootPane.getChildren().addAll(ComponentList.createComponentListTitle(i18n("settings.launcher.core_engine")), coreEnginePaneList);
+                }
             }
 
             {

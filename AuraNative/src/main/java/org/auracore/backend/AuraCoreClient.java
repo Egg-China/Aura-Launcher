@@ -128,6 +128,7 @@ public final class AuraCoreClient implements AutoCloseable {
             return read(status, handle(), reference);
         });
     }
+
     /// Reads the newest launch log lines of an instance.
     ///
     /// @param id the instance identifier
@@ -182,7 +183,6 @@ public final class AuraCoreClient implements AutoCloseable {
         });
     }
 
-
     /// Starts creation of a vanilla instance.
     ///
     /// @param name the display name of the new instance
@@ -234,6 +234,7 @@ public final class AuraCoreClient implements AutoCloseable {
             return read(status, handle(), reference);
         });
     }
+
     /// Deletes an instance directory with its shortcuts and group membership.
     ///
     /// @param id the instance identifier
@@ -246,6 +247,7 @@ public final class AuraCoreClient implements AutoCloseable {
             return read(status, handle(), reference);
         });
     }
+
     /// Destroys the backend after pending work completes.
     @Override
     public void close() {

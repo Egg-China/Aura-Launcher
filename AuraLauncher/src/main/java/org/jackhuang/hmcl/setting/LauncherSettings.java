@@ -632,6 +632,7 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
     public StringProperty selectedUiFrontendProperty() {
         return selectedUiFrontend;
     }
+
     /// The JSON property name for the selected launcher core engine.
     static final String PROPERTY_CORE_ENGINE = "coreEngine";
 
