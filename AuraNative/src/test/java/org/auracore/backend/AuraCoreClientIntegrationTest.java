@@ -70,11 +70,30 @@ class AuraCoreClientIntegrationTest {
             assertTrue(instances.toString().contains("JVM Probe"), "created instance must be listed");
 
             client.renameInstance("JVM Probe", "JVM Probe 2").get(30, TimeUnit.SECONDS);
+
+            final Path exportPath = DATA_DIRECTORY.resolve("jvm-probe-export.zip");
+            final JsonElement exported = client.exportInstance("JVM Probe 2", exportPath.toString())
+                    .get(30, TimeUnit.SECONDS);
+            assertTrue(exported.getAsJsonObject().has("taskId"), "export must return a task id");
+            final String exportTask = exported.getAsJsonObject().get("taskId").getAsString();
+            client.waitTask(exportTask, 60000).get(70, TimeUnit.SECONDS);
+            assertTrue(Files.isRegularFile(exportPath), "export must write the archive");
+
             client.deleteInstance("JVM Probe 2").get(30, TimeUnit.SECONDS);
+            final JsonElement imported = client.importInstance(exportPath.toString(), "JVM Probe Reborn", null)
+                    .get(150, TimeUnit.SECONDS);
+            assertTrue(imported.getAsJsonObject().has("taskId"), "import must return a task id");
+            final String importTask = imported.getAsJsonObject().get("taskId").getAsString();
+            client.waitTask(importTask, 180000).get(190, TimeUnit.SECONDS);
+            final JsonElement afterImport = client.listInstances().get(30, TimeUnit.SECONDS);
+            assertTrue(afterImport.toString().contains("JVM Probe Reborn"), "imported instance must be listed");
+
+            client.deleteInstance("JVM Probe Reborn").get(30, TimeUnit.SECONDS);
             final JsonElement afterDelete = client.listInstances().get(30, TimeUnit.SECONDS);
-            assertTrue(!afterDelete.toString().contains("JVM Probe"), "deleted instance must disappear");
+            assertTrue(!afterDelete.toString().contains("JVM Probe"), "deleted instances must disappear");
         }
     }
+
     /// Adds, selects, and removes an offline account through the backend.
     ///
     /// @throws Exception when any native stage fails

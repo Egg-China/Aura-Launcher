@@ -287,6 +287,35 @@ public final class AuraCoreClient implements AutoCloseable {
         });
     }
 
+    /// Starts a MultiMC-format zip export of an instance.
+    ///
+    /// @param id the instance identifier
+    /// @param outputPath the destination zip path
+    /// @return the parsed export reply containing the task id
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> exportInstance(String id, String outputPath) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_export_instance(handle(), id, outputPath, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
+    /// Starts an import from a local archive path or remote URL.
+    ///
+    /// @param source the archive path or URL
+    /// @param name the display name for the imported instance
+    /// @param group the optional group name, or null
+    /// @return the parsed import reply containing the task id
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> importInstance(String source, String name, @Nullable String group) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_import_instance(handle(), source, name, group, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
     /// Destroys the backend after pending work completes.
     @Override
     public void close() {

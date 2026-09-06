@@ -103,6 +103,10 @@ public final class NativeUiBridge {
             case "core.auracore.status":
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
+            case "core.auracore.instance.export":
+                return exportAuraCoreInstance(params);
+            case "core.auracore.instance.import":
+                return importAuraCoreInstance(params);
             case "core.auracore.instance.logs":
                 return readAuraCoreInstanceLogs(params);
             case "core.auracore.instance.stop":
@@ -321,6 +325,38 @@ public final class NativeUiBridge {
     private static CompletionStage<UiFrontendCommandHandler.Reply> stopAuraCoreInstance(BridgeValue params) {
         final String id = extractStringParameter(params, "id");
         return AuraCoreEngineManager.getInstance().start().stopInstance(id)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Starts a zip export through the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `id` and `output`
+    /// @return asynchronous reply carrying the export task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> exportAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String output = extractStringParameter(params, "output");
+        return AuraCoreEngineManager.getInstance().start().exportInstance(id, output)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Starts an instance import through the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `source` and `name`
+    /// @return asynchronous reply carrying the import task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> importAuraCoreInstance(BridgeValue params) {
+        final String source = extractStringParameter(params, "source");
+        final String name = extractStringParameter(params, "name");
+        final String group;
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get("group") instanceof BridgeValue.StringValue groupValue
+                && !groupValue.value().isBlank()) {
+            group = groupValue.value();
+        } else {
+            group = null;
+        }
+        return AuraCoreEngineManager.getInstance().start().importInstance(source, name, group)
                 .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
                 .exceptionally(failure -> auraCoreError(failure.getMessage()));
     }
