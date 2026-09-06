@@ -103,6 +103,16 @@ public final class NativeUiBridge {
             case "core.auracore.status":
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
+            case "core.auracore.instance.rename":
+                return renameAuraCoreInstance(params);
+            case "core.auracore.instance.group":
+                return groupAuraCoreInstance(params);
+            case "core.auracore.instance.icon":
+                return iconAuraCoreInstance(params);
+            case "core.auracore.instance.delete":
+                return deleteAuraCoreInstance(params);
+            case "core.auracore.task.status":
+                return auraCoreTaskStatus(params);
             case "core.auracore.instance.export":
                 return exportAuraCoreInstance(params);
             case "core.auracore.instance.import":
@@ -359,6 +369,78 @@ public final class NativeUiBridge {
         return AuraCoreEngineManager.getInstance().start().importInstance(source, name, group)
                 .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
                 .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Renames an AuraCore instance.
+    ///
+    /// @param params command parameters carrying `id` and `name`
+    /// @return asynchronous reply carrying the rename result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> renameAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String name = extractStringParameter(params, "name");
+        return AuraCoreEngineManager.getInstance().start().renameInstance(id, name)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Moves an AuraCore instance into a group.
+    ///
+    /// @param params command parameters carrying `id` and optional `group`
+    /// @return asynchronous reply carrying the group result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> groupAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String group = optionalStringParameter(params, "group");
+        return AuraCoreEngineManager.getInstance().start().setInstanceGroup(id, group)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Sets the icon key of an AuraCore instance.
+    ///
+    /// @param params command parameters carrying `id` and `icon`
+    /// @return asynchronous reply carrying the icon result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> iconAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String icon = extractStringParameter(params, "icon");
+        return AuraCoreEngineManager.getInstance().start().setInstanceIcon(id, icon)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Deletes an AuraCore instance directory.
+    ///
+    /// @param params command parameters carrying `id`
+    /// @return asynchronous reply carrying the delete result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> deleteAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        return AuraCoreEngineManager.getInstance().start().deleteInstance(id)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Reads one AuraCore task status snapshot.
+    ///
+    /// @param params command parameters carrying `taskId`
+    /// @return asynchronous reply carrying the task status
+    private static CompletionStage<UiFrontendCommandHandler.Reply> auraCoreTaskStatus(BridgeValue params) {
+        final String taskId = extractStringParameter(params, "taskId");
+        return AuraCoreEngineManager.getInstance().start().taskStatus(taskId)
+                .thenApply(status -> UiFrontendCommandHandler.Reply.result(toBridgeValue(status)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Extracts one optional string parameter.
+    ///
+    /// @param params command parameters
+    /// @param key parameter key
+    /// @return the string value or null when absent or blank
+    private static @Nullable String optionalStringParameter(BridgeValue params, String key) {
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get(key) instanceof BridgeValue.StringValue value
+                && !value.value().isBlank()) {
+            return value.value();
+        }
+        return null;
     }
 
     /// Builds the full launcher state snapshot consumed by the Modern UI.

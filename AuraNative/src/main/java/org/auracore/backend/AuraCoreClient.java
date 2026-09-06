@@ -287,6 +287,34 @@ public final class AuraCoreClient implements AutoCloseable {
         });
     }
 
+    /// Moves an instance into a group; an empty group clears membership.
+    ///
+    /// @param id the instance identifier
+    /// @param group the group name, or null to clear membership
+    /// @return the parsed group reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> setInstanceGroup(String id, @Nullable String group) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_set_instance_group(handle(), id, group, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
+    /// Sets the icon key used by launcher UIs.
+    ///
+    /// @param id the instance identifier
+    /// @param iconKey the icon key
+    /// @return the parsed icon reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> setInstanceIcon(String id, String iconKey) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_set_instance_icon(handle(), id, iconKey, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
     /// Starts a MultiMC-format zip export of an instance.
     ///
     /// @param id the instance identifier
