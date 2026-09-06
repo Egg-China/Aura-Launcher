@@ -76,6 +76,12 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
     /// The JSON property name for the selected visible UI frontend.
     static final String PROPERTY_SELECTED_UI_FRONTEND = "selectedUiFrontend";
 
+    /// Default visible UI frontend, naming the Modern UI provider distributed as an `.npl` package.
+    ///
+    /// The built-in `javafx` provider stays available as the recovery frontend whenever this package is absent,
+    /// incompatible, untrusted, or its process terminates.
+    public static final String DEFAULT_UI_FRONTEND = "dev.aura.modern-ui";
+
     /// Default launcher theme used when no stored theme reference is available.
     public static final ThemeReference DEFAULT_THEME_REFERENCE = new ThemeReference("hmcl.default", null);
 
@@ -615,11 +621,12 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
 
     /// The selected visible UI frontend ID.
     ///
-    /// `javafx` is the always-available built-in provider; any other value names an installed UI-provider plugin and is
-    /// normalized back to `javafx` by the coordinator when that package is absent, incompatible, or untrusted.
+    /// The Modern UI provider is the default; `javafx` is the always-available built-in provider. Any other value names
+    /// an installed UI-provider plugin and is normalized back to `javafx` by the coordinator when that package is absent,
+    /// incompatible, or untrusted.
     @SerializedName(PROPERTY_SELECTED_UI_FRONTEND)
     private final StringProperty selectedUiFrontend =
-            new SimpleStringProperty(this, PROPERTY_SELECTED_UI_FRONTEND, "javafx");
+            new SimpleStringProperty(this, PROPERTY_SELECTED_UI_FRONTEND, DEFAULT_UI_FRONTEND);
 
     /// Returns the selected visible UI frontend ID property.
     public StringProperty selectedUiFrontendProperty() {
