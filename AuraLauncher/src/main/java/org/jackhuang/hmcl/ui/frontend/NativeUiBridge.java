@@ -103,6 +103,10 @@ public final class NativeUiBridge {
             case "core.auracore.status":
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
+            case "core.auracore.instance.logs":
+                return readAuraCoreInstanceLogs(params);
+            case "core.auracore.instance.stop":
+                return stopAuraCoreInstance(params);
             case "core.auracore.accounts.list":
                 return listAuraCoreAccounts();
             case "core.auracore.accounts.add-offline":
@@ -290,6 +294,35 @@ public final class NativeUiBridge {
         Map<String, BridgeValue> fields = new LinkedHashMap<>();
         fields.put("error", BridgeValue.string(message == null ? "unknown AuraCore failure" : message));
         return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+    }
+
+    /// Reads launch logs from a running AuraCore instance.
+    ///
+    /// @param params command parameters carrying `id` and optional `maxLines`
+    /// @return asynchronous reply carrying the backend log object
+    private static CompletionStage<UiFrontendCommandHandler.Reply> readAuraCoreInstanceLogs(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final int maxLines;
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get("maxLines") instanceof BridgeValue.IntegerValue number) {
+            maxLines = (int) number.value();
+        } else {
+            maxLines = 0;
+        }
+        return AuraCoreEngineManager.getInstance().start().readInstanceLogs(id, maxLines)
+                .thenApply(logs -> UiFrontendCommandHandler.Reply.result(toBridgeValue(logs)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Stops a running AuraCore instance process.
+    ///
+    /// @param params command parameters carrying `id`
+    /// @return asynchronous reply carrying the stop result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> stopAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        return AuraCoreEngineManager.getInstance().start().stopInstance(id)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
     }
 
     /// Builds the full launcher state snapshot consumed by the Modern UI.
