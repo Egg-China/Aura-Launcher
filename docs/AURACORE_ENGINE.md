@@ -42,3 +42,18 @@ System-proxy mode has no AuraCore equivalent and is skipped.
   migration allowlist.
 - `core.auracore.migrate` — copy the allowlisted settings into the backend and
   report per-key outcomes.
+- `core.instance.launch` — launches through the backend when the AuraCore
+  engine is selected, returning the backend task id.
+- `core.auracore.instance.create` — create a vanilla instance (`name`,
+  `version`, optional `group`).
+- `core.auracore.instance.rename` / `group` / `icon` / `delete` — edit and
+  remove instances.
+- `core.auracore.instance.export` / `import` — MultiMC-format archive round
+  trips.
+- `core.auracore.instance.logs` — tail the live game output (`id`, optional
+  `maxLines`).
+- `core.auracore.instance.stop` — terminate a running game process.
+- `core.auracore.task.status` — poll one backend task (`taskId`).
+- `core.auracore.accounts.list` / `add-offline` / `remove` / `set-default` —
+  account management.
+- `core.auracore.auth.msa.begin` / `msa.info` — Microsoft device-code login.
