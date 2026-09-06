@@ -38,6 +38,20 @@ public final class PluginUIRegistry {
     private static final @UnmodifiableView ObservableList<SidebarItem> SIDEBAR_ITEMS_VIEW =
             FXCollections.unmodifiableObservableList(SIDEBAR_ITEMS);
 
+    /// Mutable backing list of button actions changed only by trusted callers.
+    private static final ObservableList<ButtonItem> BUTTON_ITEMS = FXCollections.observableArrayList();
+
+    /// Read-only observable button view exposed to launcher UI consumers.
+    private static final @UnmodifiableView ObservableList<ButtonItem> BUTTON_ITEMS_VIEW =
+            FXCollections.unmodifiableObservableList(BUTTON_ITEMS);
+
+    /// Returns the read-only observable button item view used by launcher pages.
+    ///
+    /// @return unmodifiable observable button items
+    public static @UnmodifiableView ObservableList<ButtonItem> getButtonItems() {
+        return BUTTON_ITEMS_VIEW;
+    }
+
     /// Prevents construction of the process-wide registry.
     private PluginUIRegistry() {
     }
@@ -97,11 +111,34 @@ public final class PluginUIRegistry {
         runOnFxThreadOrNow(() -> SIDEBAR_ITEMS.remove(item));
     }
 
-    /// Removes every sidebar item owned by one plugin.
+    /// Registers one page-level button action after the owning context passed its permission check.
+    ///
+    /// @param pluginId owning plugin ID
+    /// @param title displayed button title
+    /// @param onAction action invoked when the button is activated
+    /// @return exact immutable button contribution
+    public static ButtonItem registerButtonItem(String pluginId, String title, Runnable onAction) {
+        ButtonItem item = new ButtonItem(pluginId, title, onAction);
+        runOnFxThreadOrNow(() -> BUTTON_ITEMS.add(item));
+        LOG.info("Plugin " + pluginId + " registered button item: " + title);
+        return item;
+    }
+
+    /// Removes one exact button contribution.
+    ///
+    /// @param item exact button contribution returned by a registration method
+    public static void unregisterButtonItem(ButtonItem item) {
+        runOnFxThreadOrNow(() -> BUTTON_ITEMS.remove(item));
+    }
+
+    /// Removes every sidebar and button contribution owned by one plugin.
     ///
     /// @param pluginId owning plugin ID
     public static void unregisterAll(String pluginId) {
-        runOnFxThreadOrNow(() -> SIDEBAR_ITEMS.removeIf(item -> item.getPluginId().equals(pluginId)));
+        runOnFxThreadOrNow(() -> {
+            SIDEBAR_ITEMS.removeIf(item -> item.getPluginId().equals(pluginId));
+            BUTTON_ITEMS.removeIf(item -> item.getPluginId().equals(pluginId));
+        });
     }
 
     /// Runs a registry mutation on JavaFX when available, or synchronously before toolkit startup.
@@ -174,6 +211,65 @@ public final class PluginUIRegistry {
         /// Returns the lazy page factory for an embedded layout, when present.
         public @Nullable Supplier<Node> getPageSupplier() {
             return pageSupplier;
+        }
+
+        /// Returns the stable contribution identifier used by native frontends.
+        ///
+        /// @return owner-scoped contribution identifier
+        public String getContributionId() {
+            return pluginId + ":sidebar:" + title;
+        }
+    }
+
+    /// Immutable button action contributed by one plugin.
+    @NotNullByDefault
+    public static final class ButtonItem {
+        /// Stable ID of the plugin that owns this button.
+        private final String pluginId;
+
+        /// Text displayed on the contributed button.
+        private final String title;
+
+        /// Action invoked when the user activates this button.
+        private final Runnable onAction;
+
+        /// Creates one immutable button action for a trusted registry caller.
+        ///
+        /// @param pluginId owning plugin ID
+        /// @param title displayed button title
+        /// @param onAction activation action
+        private ButtonItem(String pluginId, String title, Runnable onAction) {
+            this.pluginId = pluginId;
+            this.title = title;
+            this.onAction = onAction;
+        }
+
+        /// Returns the stable ID of the owning plugin.
+        ///
+        /// @return owning plugin ID
+        public String getPluginId() {
+            return pluginId;
+        }
+
+        /// Returns the displayed button title.
+        ///
+        /// @return button title
+        public String getTitle() {
+            return title;
+        }
+
+        /// Returns the action invoked when this button is activated.
+        ///
+        /// @return activation action
+        public Runnable getOnAction() {
+            return onAction;
+        }
+
+        /// Returns the stable contribution identifier used by native frontends.
+        ///
+        /// @return owner-scoped contribution identifier
+        public String getContributionId() {
+            return pluginId + ":button:" + title;
         }
     }
 }

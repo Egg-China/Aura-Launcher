@@ -56,6 +56,8 @@ import org.jackhuang.hmcl.plugin.protector.PluginRecoveryRecord;
 import org.jackhuang.hmcl.plugin.protector.PluginRecoveryStore;
 import org.jackhuang.hmcl.plugin.protector.StartupReporter;
 import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceipt;
+import org.jackhuang.hmcl.plugin.trust.PluginOfficialReceipt;
+import org.jackhuang.hmcl.plugin.trust.PluginInstallationTrustProof;
 import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceiptStore;
 import org.jackhuang.hmcl.plugin.trust.PluginRuntimeTrustGuard;
 import org.jackhuang.hmcl.ui.FXUtils;
@@ -466,6 +468,8 @@ public final class PluginManager {
     ///
     /// Holding the lock through lifecycle construction keeps the final permission snapshot and package identity
     /// unchanged between policy evaluation and the first plugin callback.
+    /// Native UI-provider packages receive compatibility-driven management status only; their executable
+    /// lifecycle stays owned by the UI frontend coordinator.
     ///
     /// @throws IOException if package recovery, permission reload, or package discovery fails
     private void discoverPluginsLocked() throws IOException {
@@ -500,6 +504,26 @@ public final class PluginManager {
 
         Map<String, PluginVisitState> visitStates = new HashMap<>();
         Set<String> failed = new HashSet<>();
+        // Native UI providers own no Java lifecycle: publish exact status without constructing a class loader.
+        for (PluginPackageCandidate candidate : candidates.values()) {
+            if (candidate.manifest.getPluginKind() != PluginKind.UI_PROVIDER) {
+                continue;
+            }
+            PluginCompatibilityResult uiCompatibility = evaluateCompatibility(candidate.manifest);
+            if (!uiCompatibility.isCompatible()) {
+                if (uiCompatibility.status() == PluginCompatibilityStatus.UNSUPPORTED_SCHEMA) {
+                    enabledStates.remove(candidate.manifest.getId());
+                }
+                setRuntimeStatus(
+                        candidate.identity,
+                        runtimeStatusFor(uiCompatibility),
+                        uiCompatibility.detail()
+                );
+                continue;
+            }
+            setRuntimeStatus(candidate.identity, PluginRuntimeStatus.INSTALLED_DISABLED, null);
+        }
+
         @Unmodifiable Map<String, RuntimeProviderBinding> startupRuntimeBindings = runtimeBindingStore.readStrict();
         for (PluginKind startupKind : List.of(PluginKind.RUNTIME_PROVIDER, PluginKind.NORMAL)) {
             for (PluginPackageCandidate candidate : candidates.values()) {
@@ -2753,7 +2777,7 @@ public final class PluginManager {
             @Unmodifiable Map<String, @Unmodifiable Set<PluginPermission>> grantsByPluginId,
             @Unmodifiable Map<String, PluginArtifactIdentity> expectedReusableArtifacts,
             @Unmodifiable Map<String, Optional<PluginArtifactIdentity>> expectedPriorArtifacts,
-            @Unmodifiable Map<String, PluginCertificationReceipt> certificationReceipts,
+            @Unmodifiable Map<String, PluginInstallationTrustProof> certificationReceipts,
             PluginRuntimeInstallAuthorization runtimeAuthorization
     ) throws IOException {
         administrativeGuard.checkTrustedCaller();
@@ -2762,7 +2786,7 @@ public final class PluginManager {
         validateExpectedPackageRuntimeContracts(runtimeAuthorization, inspections);
         @Unmodifiable Map<String, PluginArtifactIdentity> reusableSnapshot = Map.copyOf(expectedReusableArtifacts);
         @Unmodifiable Map<String, Optional<PluginArtifactIdentity>> priorSnapshot = Map.copyOf(expectedPriorArtifacts);
-        @Unmodifiable Map<String, PluginCertificationReceipt> receiptSnapshot = Map.copyOf(certificationReceipts);
+        @Unmodifiable Map<String, PluginInstallationTrustProof> receiptSnapshot = Map.copyOf(certificationReceipts);
         return stagePluginInstallationsOnLifecycleThread(inspections, () -> mutationLock.call(
                 () -> stagePluginInstallationsLocked(
                 inspections,
@@ -2827,14 +2851,14 @@ public final class PluginManager {
             @Unmodifiable Map<String, @Unmodifiable Set<PluginPermission>> grantsByPluginId,
             @Unmodifiable Map<String, PluginArtifactIdentity> expectedReusableArtifacts,
             @Unmodifiable Map<String, Optional<PluginArtifactIdentity>> expectedPriorArtifacts,
-            @Unmodifiable Map<String, PluginCertificationReceipt> certificationReceipts
+            @Unmodifiable Map<String, PluginInstallationTrustProof> certificationReceipts
     ) throws IOException {
         administrativeGuard.checkTrustedCaller();
         @Unmodifiable Map<String, PluginArtifactIdentity> reusableSnapshot =
                 Map.copyOf(expectedReusableArtifacts);
         @Unmodifiable Map<String, Optional<PluginArtifactIdentity>> priorSnapshot =
                 Map.copyOf(expectedPriorArtifacts);
-        @Unmodifiable Map<String, PluginCertificationReceipt> receiptSnapshot =
+        @Unmodifiable Map<String, PluginInstallationTrustProof> receiptSnapshot =
                 Map.copyOf(certificationReceipts);
         return stagePluginInstallationsOnLifecycleThread(inspections, () -> mutationLock.call(
                 () -> stagePluginInstallationsLocked(
@@ -2924,7 +2948,7 @@ public final class PluginManager {
             @Unmodifiable Map<String, PluginArtifactIdentity> expectedReusableArtifacts,
             boolean requireExpectedReusableArtifacts,
             @Unmodifiable Map<String, Optional<PluginArtifactIdentity>> expectedPriorArtifacts,
-            @Unmodifiable Map<String, PluginCertificationReceipt> certificationReceipts,
+            @Unmodifiable Map<String, PluginInstallationTrustProof> certificationReceipts,
             PluginRuntimeInstallAuthorization runtimeAuthorization
     ) throws IOException {
         runtimeAuthorization.requireAcknowledgements();
@@ -2970,14 +2994,33 @@ public final class PluginManager {
         if (!replacements.keySet().containsAll(certificationReceipts.keySet())) {
             throw new IllegalArgumentException("Certification receipt belongs to a plugin outside the install batch");
         }
-        for (Map.Entry<String, PluginCertificationReceipt> entry : certificationReceipts.entrySet()) {
+        for (Map.Entry<String, PluginInstallationTrustProof> entry : certificationReceipts.entrySet()) {
             LocalPluginInspection inspection = Objects.requireNonNull(inspectionsById.get(entry.getKey()));
-            PluginCertificationReceipt receipt = entry.getValue();
-            if (!entry.getKey().equals(receipt.pluginId())
-                    || !inspection.manifest.getVersion().equals(receipt.version())
-                    || !inspection.sha256.equals(receipt.sha256())
-                    || Files.size(inspection.sourcePackage) != receipt.size()) {
-                throw new IOException("Certification receipt does not match inspected package " + entry.getKey());
+            PluginInstallationTrustProof proof = entry.getValue();
+            String pluginId = entry.getKey();
+            @Nullable String receiptPluginId;
+            String receiptVersion;
+            String receiptSha256;
+            long receiptSize;
+            if (proof.kind() == PluginInstallationTrustProof.Kind.OFFICIAL) {
+                PluginOfficialReceipt receipt = Objects.requireNonNull(proof.officialReceipt());
+                PluginArtifactIdentity receiptIdentity = receipt.getArtifactIdentity();
+                receiptPluginId = receiptIdentity.getPluginId();
+                receiptVersion = receiptIdentity.getVersion();
+                receiptSha256 = receiptIdentity.getSha256();
+                receiptSize = receipt.getArtifactSize();
+            } else {
+                PluginCertificationReceipt receipt = Objects.requireNonNull(proof.certificationReceipt());
+                receiptPluginId = receipt.pluginId();
+                receiptVersion = receipt.version();
+                receiptSha256 = receipt.sha256();
+                receiptSize = receipt.size();
+            }
+            if (!pluginId.equals(receiptPluginId)
+                    || !inspection.manifest.getVersion().equals(receiptVersion)
+                    || !inspection.sha256.equals(receiptSha256)
+                    || Files.size(inspection.sourcePackage) != receiptSize) {
+                throw new IOException("Installation proof does not match inspected package " + entry.getKey());
             }
         }
         installationStateGuard.validateReplacementPriorArtifacts(
@@ -3069,7 +3112,7 @@ public final class PluginManager {
                                 Objects.requireNonNull(grantsByPluginId.get(entry.getKey()))
                         );
                     }
-                    certificationReceiptStore.replaceInstallations(
+                    certificationReceiptStore.replaceInstallationProofs(
                             Set.copyOf(replacements.keySet()),
                             certificationReceipts
                     );

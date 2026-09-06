@@ -62,8 +62,9 @@ import org.jackhuang.hmcl.plugin.store.PluginStoreManager;
 import org.jackhuang.hmcl.plugin.store.PluginStorePreferences;
 import org.jackhuang.hmcl.plugin.store.PluginStoreManifest;
 import org.jackhuang.hmcl.plugin.store.PluginStoreSnapshot;
+import org.jackhuang.hmcl.plugin.store.PluginVerifiedDownload;
 import org.jackhuang.hmcl.plugin.store.PluginStoreRegistry;
-import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceipt;
+import org.jackhuang.hmcl.plugin.trust.PluginInstallationTrustProof;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustLevel;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustResult;
 import org.jackhuang.hmcl.task.Schedulers;
@@ -1667,7 +1668,7 @@ public class PluginStorePage extends VBox implements DecoratorPage, PageAware {
             try {
                 stagingDirectory = Files.createTempDirectory("hmcl-plugin-plan-");
                 Map<String, Path> stagedPackages = new LinkedHashMap<>();
-                Map<String, PluginCertificationReceipt> certificationReceipts = new LinkedHashMap<>();
+                Map<String, PluginInstallationTrustProof> certificationReceipts = new LinkedHashMap<>();
                 @Unmodifiable List<PluginInstallPlan.Entry> downloads = plan.getDownloadEntries();
                 for (int index = 0; index < downloads.size(); index++) {
                     requireCurrentInstallSnapshot(snapshot);
@@ -1681,16 +1682,17 @@ public class PluginStorePage extends VBox implements DecoratorPage, PageAware {
                     ));
                     PluginStoreManifest.PluginVersionEntry remoteVersion =
                             Objects.requireNonNull(entry.getRemoteVersion(), "Download entry has no remote version");
-                    Path staged = entry.requireSourceManager().downloadPluginToStaging(
-                            entry.getPluginId(),
-                            remoteVersion,
-                            stagingDirectory
-                    );
-                    stagedPackages.put(entry.getPluginId(), staged);
-                    collectCertificationReceipt(
+                    PluginVerifiedDownload staged = entry.requireSourceManager()
+                            .downloadPluginToStagingWithProof(
+                                    entry.getPluginId(),
+                                    remoteVersion,
+                                    stagingDirectory
+                            );
+                    stagedPackages.put(entry.getPluginId(), staged.stagedPath());
+                    collectInstallationTrustProof(
                             certificationReceipts,
                             entry.getPluginId(),
-                            remoteVersion.getTrust()
+                            staged.trustProof()
                     );
                 }
                 requireCurrentInstallSnapshot(snapshot);
@@ -1725,17 +1727,13 @@ public class PluginStorePage extends VBox implements DecoratorPage, PageAware {
     /// @param receipts mutable receipt map for the pending installation transaction
     /// @param pluginId plugin receiving the selected package
     /// @param trust selected package trust result
-    static void collectCertificationReceipt(
-            Map<String, PluginCertificationReceipt> receipts,
+    static void collectInstallationTrustProof(
+            Map<String, PluginInstallationTrustProof> proofs,
             String pluginId,
-            PluginTrustResult trust
+            @Nullable PluginInstallationTrustProof proof
     ) {
-        if (trust.level() != PluginTrustLevel.CERTIFIED) {
-            return;
-        }
-        @Nullable PluginCertificationReceipt receipt = trust.certificationReceipt();
-        if (receipt != null) {
-            receipts.put(pluginId, receipt);
+        if (proof != null) {
+            proofs.put(pluginId, proof);
         }
     }
 
@@ -2457,7 +2455,7 @@ public class PluginStorePage extends VBox implements DecoratorPage, PageAware {
         private final @Unmodifiable Map<String, @Unmodifiable Set<PluginPermission>> grantsByPluginId;
 
         /// Proof-backed receipts for certified downloads indexed by exact replacement plugin ID.
-        private final @Unmodifiable Map<String, PluginCertificationReceipt> certificationReceipts;
+        private final @Unmodifiable Map<String, PluginInstallationTrustProof> certificationReceipts;
 
         /// Confirmed virtual bindings, Host enablements, and custom-source acknowledgements.
         private final PluginRuntimeInstallAuthorization runtimeAuthorization;
@@ -2477,7 +2475,7 @@ public class PluginStorePage extends VBox implements DecoratorPage, PageAware {
                 Path stagingDirectory,
                 Map<String, Path> stagedPackages,
                 Map<String, @Unmodifiable Set<PluginPermission>> grantsByPluginId,
-                Map<String, PluginCertificationReceipt> certificationReceipts,
+                Map<String, PluginInstallationTrustProof> certificationReceipts,
                 PluginRuntimeInstallAuthorization runtimeAuthorization
         ) {
             this.plan = plan;

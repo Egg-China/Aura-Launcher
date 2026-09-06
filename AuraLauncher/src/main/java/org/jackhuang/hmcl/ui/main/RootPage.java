@@ -292,10 +292,15 @@ public class RootPage extends DecoratorAnimatedPage implements DecoratorPage {
             }, popup::hide));
 
             List<PluginUIRegistry.SidebarItem> pluginItems = PluginUIRegistry.getSidebarItems();
-            if (!pluginItems.isEmpty()) {
+            List<PluginUIRegistry.ButtonItem> pluginButtons = PluginUIRegistry.getButtonItems();
+            if (!pluginItems.isEmpty() || !pluginButtons.isEmpty()) {
                 menu.startCategory(i18n("plugin").toUpperCase(Locale.ROOT));
                 for (PluginUIRegistry.SidebarItem item : pluginItems) {
                     menu.addNavigationDrawerItem(item.getTitle(), SVG.EXTENSION_FILL,
+                            PluginPopupSelection.runAndDismiss(item.getOnAction(), popup::hide));
+                }
+                for (PluginUIRegistry.ButtonItem item : pluginButtons) {
+                    menu.addNavigationDrawerItem(item.getTitle(), SVG.GAMEPAD,
                             PluginPopupSelection.runAndDismiss(item.getOnAction(), popup::hide));
                 }
             }

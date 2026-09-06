@@ -19,19 +19,24 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceipt;
+import org.jackhuang.hmcl.plugin.trust.PluginInstallationTrustProof;
 import org.jackhuang.hmcl.plugin.trust.CanonicalJson;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustLevel;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustStatusCache;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustVerifier;
+import org.jackhuang.hmcl.util.io.HttpRequest;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -46,8 +51,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /// Verifies end-to-end version-scoped certification while loading ordinary third-party store manifests.
 @NotNullByDefault
@@ -66,6 +75,131 @@ public final class PluginStoreCertificationTest {
 
     /// Historical verification ID referenced by the NPL proof.
     private static final String VERIFICATION_ID = "11111111-1111-4111-8111-111111111117";
+
+    /// Downloads an exact certified NPL and returns its original independently reverified dual-envelope receipt.
+    @Test
+    public void returnsExactCertifiedDownloadProof(@TempDir Path temporaryDirectory) throws Exception {
+        String versionText = "2.0.0";
+        byte @Unmodifiable [] packageBytes = createPluginPackage(FIRST_ID, versionText);
+        String packageSha256 = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(packageBytes)
+        );
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519");
+        KeyPair repositorySigner = generator.generateKeyPair();
+        KeyPair artifactSigner = generator.generateKeyPair();
+        KeyPair statusSigner = generator.generateKeyPair();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        String packageUrl = "https://github.com/example/plugins/releases/download/v"
+                + versionText + "/plugin.npl";
+        PluginTrustVerifier verifier = verifier(
+                repositorySigner,
+                artifactSigner,
+                statusSigner,
+                baseUrl + "/status.json"
+        );
+        JsonObject artifact = artifactProofAtUrl(
+                artifactSigner,
+                FIRST_ID,
+                versionText,
+                packageSha256,
+                packageBytes.length,
+                packageUrl
+        );
+        String statusJson = statusSnapshot(statusSigner).toString();
+        String repositoryProofJson = repositoryProof(repositorySigner).toString();
+        String manifestUrl = baseUrl + "/manifest.json";
+        server.createContext("/status.json", exchange -> respond(exchange, statusJson));
+        server.createContext(
+                "/api/v1/repositories/attestations/" + VERIFICATION_ID,
+                exchange -> respond(exchange, repositoryProofJson)
+        );
+        server.createContext("/registry.json", exchange -> respond(exchange, """
+                {"schemaVersion":1,"name":"Certified","plugins":[{
+                  "id":"%s","name":"Certified Plugin","manifestUrl":"%s","repository":"https://%s"
+                }]}
+                """.formatted(FIRST_ID, manifestUrl, REPOSITORY)));
+        server.createContext("/manifest.json", exchange -> respond(exchange, """
+                {
+                  "schemaVersion":2,
+                  "id":"%s",
+                  "repository":"%s",
+                  "versions":[{
+                    "version":"%s",
+                    "packageUrl":"%s",
+                    "sha256":"%s",
+                    "pluginApiVersion":5,
+                    "permissions":[],
+                    "requiredPermissions":[],
+                    "launcherVersion":"*",
+                    "runtime":"java",
+                    "abi":1,
+                    "platforms":[],
+                    "dependencies":[],
+                    "size":%d,
+                    "certification":{"artifactAttestation":%s}
+                  }]
+                }
+                """.formatted(
+                FIRST_ID,
+                REPOSITORY,
+                versionText,
+                packageUrl,
+                packageSha256,
+                packageBytes.length,
+                artifact
+        )));
+        server.createContext("/plugin.npl", exchange -> {
+            exchange.sendResponseHeaders(HttpURLConnection.HTTP_OK, packageBytes.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(packageBytes);
+            }
+        });
+        server.start();
+
+        try (PluginTrustStatusCache cache = new PluginTrustStatusCache(
+                verifier,
+                temporaryDirectory.resolve("status-cache.json"),
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        )) {
+            cache.refresh();
+            PluginStoreManager manager = new PluginStoreManager(
+                    verifier,
+                    cache,
+                    (ignoredUrl, ignoredPurpose) -> HttpRequest.GET(baseUrl + "/plugin.npl").createConnection()
+            );
+            manager.loadSource(new PluginSource(
+                    "certified",
+                    baseUrl + "/registry.json",
+                    null,
+                    true,
+                    false
+            ));
+            PluginStoreManifest manifest = manager.getPluginManifest(FIRST_ID, manifestUrl);
+            PluginStoreManifest.PluginVersionEntry version = Objects.requireNonNull(
+                    manifest.getVersion(versionText)
+            );
+
+            PluginVerifiedDownload result = manager.downloadPluginToStagingWithProof(
+                    FIRST_ID,
+                    version,
+                    temporaryDirectory.resolve("staging")
+            );
+
+            assertArrayEquals(packageBytes, Files.readAllBytes(result.stagedPath()));
+            assertNotNull(result.trustProof());
+            PluginInstallationTrustProof proof = Objects.requireNonNull(result.trustProof());
+            assertEquals(PluginInstallationTrustProof.Kind.CERTIFIED, proof.kind());
+            assertNotNull(proof.certificationReceipt());
+            PluginCertificationReceipt receipt = Objects.requireNonNull(proof.certificationReceipt());
+            assertEquals(
+                    FIRST_ID,
+                    receipt.verify(verifier, result.artifactIdentity(), result.artifactSize()).pluginId()
+            );
+        } finally {
+            server.stop(0);
+        }
+    }
 
     /// Ignores retired certification declarations while loading an otherwise valid community manifest.
     @Test
@@ -313,6 +447,76 @@ public final class PluginStoreCertificationTest {
         signed.addProperty("policyVersion", "2026-08");
         signed.addProperty("jobId", "job-42");
         return envelope(PluginTrustVerifier.NPL_ATTESTATION_DOMAIN, signed, signer);
+    }
+
+    /// Creates one per-release NPL proof whose asset URL is selected by the caller.
+    ///
+    /// @param signer artifact-attestor signer
+    /// @param pluginId exact plugin ID
+    /// @param version exact version
+    /// @param sha256 exact NPL digest
+    /// @param size exact NPL size
+    /// @param assetUrl exact release asset URL
+    /// @return signed artifact-attestation envelope
+    /// @throws Exception if signing fails
+    private static JsonObject artifactProofAtUrl(
+            KeyPair signer,
+            String pluginId,
+            String version,
+            String sha256,
+            long size,
+            String assetUrl
+    ) throws Exception {
+        JsonObject signed = new JsonObject();
+        signed.addProperty("_type", "npl-attestation");
+        signed.addProperty("schemaVersion", 1);
+        signed.addProperty("repository", REPOSITORY);
+        signed.addProperty("repositoryId", 1701);
+        signed.addProperty("pluginId", pluginId);
+        signed.addProperty("version", version);
+        signed.addProperty("tag", "v" + version);
+        signed.addProperty("assetName", "plugin.npl");
+        signed.addProperty("assetUrl", assetUrl);
+        signed.addProperty("sha256", sha256);
+        signed.addProperty("size", size);
+        signed.addProperty("sourceCommit", "0123456789abcdef0123456789abcdef01234567");
+        signed.addProperty("repositoryVerificationId", VERIFICATION_ID);
+        signed.addProperty("approvedAt", "2026-08-14T07:00:00Z");
+        signed.addProperty("policyVersion", "2026-08");
+        signed.addProperty("jobId", "job-verified-download");
+        return envelope(PluginTrustVerifier.NPL_ATTESTATION_DOMAIN, signed, signer);
+    }
+
+    /// Emits the smallest valid schema-v5 NPL for a certified download.
+    ///
+    /// @param pluginId package plugin ID
+    /// @param version package version
+    /// @return complete NPL bytes
+    /// @throws IOException if ZIP generation fails
+    private static byte @Unmodifiable [] createPluginPackage(String pluginId, String version) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            zip.putNextEntry(new ZipEntry("plugin.json"));
+            zip.write("""
+                    {
+                      "schemaVersion":5,
+                      "id":"%s",
+                      "name":"Certified Download",
+                      "version":"%s",
+                      "type":"java",
+                      "entrypoint":"dev.example.Plugin",
+                      "permissions":[],
+                      "requiredPermissions":[],
+                      "launcherVersion":"*",
+                      "runtime":"java",
+                      "abi":1,
+                      "platforms":[],
+                      "dependencies":[]
+                    }
+                    """.formatted(pluginId, version).getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return bytes.toByteArray();
     }
 
     /// Creates a schema-v2 manifest with one attested version and optionally one unsigned older version.

@@ -27,6 +27,8 @@ import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityEvaluator;
 import org.jackhuang.hmcl.plugin.runtime.PluginCompatibilityResult;
 import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceipt;
 import org.jackhuang.hmcl.plugin.trust.PluginDocumentVerification;
+import org.jackhuang.hmcl.plugin.trust.PluginInstallationTrustProof;
+import org.jackhuang.hmcl.plugin.trust.PluginOfficialReceipt;
 import org.jackhuang.hmcl.plugin.trust.PluginRepositoryAttestation;
 import org.jackhuang.hmcl.plugin.trust.PluginRepositoryAttestationDocument;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustLevel;
@@ -48,6 +50,9 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -136,8 +141,24 @@ public final class PluginStoreManager {
     /// Shared launcher, platform, runtime, and ABI compatibility evaluator.
     private final PluginCompatibilityEvaluator compatibilityEvaluator;
 
+    /// Opens already validated package URLs, replaceable only by package-local transport tests.
+    private final PackageConnectionFactory packageConnectionFactory;
+
     /// README cache retained only for the historical explicit-manifest API before a source has loaded.
     private final Map<String, String> unloadedReadmeCache = new ConcurrentHashMap<>();
+
+    /// Package-local transport seam for immutable HTTPS artifact identities without live network access.
+    @FunctionalInterface
+    @NotNullByDefault
+    interface PackageConnectionFactory {
+        /// Opens one package connection after Store URL policy validation.
+        ///
+        /// @param url validated exact package URL
+        /// @param purpose diagnostic request purpose
+        /// @return connected package response
+        /// @throws IOException if the response cannot be opened
+        HttpURLConnection open(String url, String purpose) throws IOException;
+    }
 
     /// Captures one source generation so readers cannot combine registry state or cache results across replacements.
     @NotNullByDefault
@@ -149,7 +170,10 @@ public final class PluginStoreManager {
         private final PluginStoreRegistry registry;
 
         /// Validated manifests resolved only for this source generation.
-        private final Map<String, PluginStoreManifest> manifestCache = new ConcurrentHashMap<>();
+        private final Map<String, CachedManifest> manifestCache = new ConcurrentHashMap<>();
+
+        /// Exact bounded official-registry envelope bytes, absent only for generated Topic sources.
+        private final byte @Nullable @Unmodifiable [] registryEnvelopeUtf8;
 
         /// Raw manifests prefetched by GitHub Topic discovery.
         private final Map<String, String> prefetchedManifestContents = new ConcurrentHashMap<>();
@@ -159,9 +183,6 @@ public final class PluginStoreManager {
 
         /// Topic repositories excluded before they could become registry entries.
         private final int skippedRepositoryCount;
-
-        /// Trust results bound to manifests in this source generation.
-        private final Map<String, PluginTrustResult> manifestTrust = new ConcurrentHashMap<>();
 
         /// Historical repository proofs cached by artifact-signed verification ID for this source generation.
         private final Map<String, RepositoryAttestationResolution> repositoryAttestations = new ConcurrentHashMap<>();
@@ -184,6 +205,7 @@ public final class PluginStoreManager {
                 PluginSource source,
                 PluginStoreRegistry registry,
                 PluginTrustResult registryTrust,
+                byte @Nullable @Unmodifiable [] registryEnvelopeUtf8,
                 Map<String, String> prefetchedManifestContents,
                 Map<String, String> repositoryIdentities,
                 int skippedRepositoryCount
@@ -194,29 +216,171 @@ public final class PluginStoreManager {
             this.source = source;
             this.registry = registry;
             this.registryTrust = registryTrust;
+            this.registryEnvelopeUtf8 = registryEnvelopeUtf8 == null ? null : registryEnvelopeUtf8.clone();
             this.prefetchedManifestContents.putAll(prefetchedManifestContents);
             this.repositoryIdentities.putAll(repositoryIdentities);
             this.skippedRepositoryCount = skippedRepositoryCount;
         }
     }
 
+    /// Atomically couples one parsed Store manifest to the exact UTF-8 bytes and source-derived trust used to parse it.
+    @NotNullByDefault
+    private static final class CachedManifest {
+        /// Validated parsed manifest.
+        private final PluginStoreManifest manifest;
+
+        /// Exact bounded UTF-8 bytes used for parsing and official pin verification.
+        private final byte @Unmodifiable [] manifestUtf8;
+
+        /// Source-derived trust captured before cache publication.
+        private final PluginTrustResult trust;
+
+        /// Creates one immutable cache entry and defensively copies its proof-bearing bytes.
+        ///
+        /// @param manifest validated parsed manifest
+        /// @param manifestUtf8 exact UTF-8 source bytes
+        /// @param trust source-derived manifest trust
+        private CachedManifest(
+                PluginStoreManifest manifest,
+                byte @Unmodifiable [] manifestUtf8,
+                PluginTrustResult trust
+        ) {
+            this.manifest = Objects.requireNonNull(manifest, "manifest");
+            this.manifestUtf8 = manifestUtf8.clone();
+            this.trust = Objects.requireNonNull(trust, "trust");
+        }
+
+        /// Returns the validated parsed manifest.
+        ///
+        /// @return parsed manifest
+        private PluginStoreManifest manifest() {
+            return manifest;
+        }
+
+        /// Returns a defensive copy of the exact source bytes.
+        ///
+        /// @return exact UTF-8 manifest bytes
+        private byte @Unmodifiable [] manifestUtf8() {
+            return manifestUtf8.clone();
+        }
+
+        /// Returns the source-derived manifest trust.
+        ///
+        /// @return captured trust decision
+        private PluginTrustResult trust() {
+            return trust;
+        }
+    }
+
+    /// Source-generation-bound inputs used to derive and reverify one concrete installation proof.
+    @NotNullByDefault
+    private final class DownloadProofContext {
+        /// Captured source generation that owns every proof input.
+        private final SourceContext sourceContext;
+
+        /// Exact registry entry selected from the captured generation.
+        private final PluginStoreRegistry.PluginStoreEntry entry;
+
+        /// Atomically published parsed manifest and exact source bytes.
+        private final CachedManifest cachedManifest;
+
+        /// Source- or verifier-derived trust decision, never a mutable version badge.
+        private final PluginTrustResult trustDecision;
+
+        /// Creates proof inputs already bound to one captured source generation.
+        ///
+        /// @param sourceContext captured source generation
+        /// @param entry exact captured registry entry
+        /// @param cachedManifest exact captured parsed manifest and source bytes
+        /// @param trustDecision source- or verifier-derived trust decision
+        private DownloadProofContext(
+                SourceContext sourceContext,
+                PluginStoreRegistry.PluginStoreEntry entry,
+                CachedManifest cachedManifest,
+                PluginTrustResult trustDecision
+        ) {
+            this.sourceContext = sourceContext;
+            this.entry = entry;
+            this.cachedManifest = cachedManifest;
+            this.trustDecision = trustDecision;
+        }
+
+        /// Returns the captured decision used by the proof-aware download gate.
+        ///
+        /// @return source- or verifier-derived trust
+        private PluginTrustResult trustDecision() {
+            return trustDecision;
+        }
+
+        /// Builds and independently re-verifies the concrete proof for downloaded bytes.
+        ///
+        /// @param artifact exact selected platform artifact
+        /// @param identity downloaded package identity
+        /// @param actualSize actual downloaded package size
+        /// @return official or certified proof, or `null` for community content
+        /// @throws IOException if required proof is absent, malformed, or does not bind the downloaded artifact
+        private @Nullable PluginInstallationTrustProof createAndVerifyProof(
+                PluginStoreArtifact artifact,
+                PluginArtifactIdentity identity,
+                long actualSize
+        ) throws IOException {
+            try {
+                if (trustDecision.level() == PluginTrustLevel.OFFICIAL) {
+                    byte @Nullable @Unmodifiable [] registryEnvelopeUtf8 = sourceContext.registryEnvelopeUtf8;
+                    if (registryEnvelopeUtf8 == null) {
+                        throw new IllegalArgumentException("Official source has no retained registry envelope");
+                    }
+                    PluginOfficialReceipt receipt = new PluginOfficialReceipt(
+                            registryEnvelopeUtf8,
+                            cachedManifest.manifestUtf8(),
+                            entry.getManifestUrl(),
+                            entry.getRepository(),
+                            artifact.platform().getId(),
+                            artifact.packageUrl(),
+                            identity,
+                            actualSize
+                    );
+                    receipt.verify(trustVerifier, identity, actualSize);
+                    return PluginInstallationTrustProof.fromInstallDecision(trustDecision, receipt);
+                }
+                if (trustDecision.level() == PluginTrustLevel.CERTIFIED) {
+                    PluginInstallationTrustProof proof =
+                            PluginInstallationTrustProof.fromInstallDecision(trustDecision, null);
+                    PluginCertificationReceipt receipt = Objects.requireNonNull(proof.certificationReceipt());
+                    receipt.verify(trustVerifier, identity, actualSize);
+                    return proof;
+                }
+                if (trustDecision.level() == PluginTrustLevel.COMMUNITY) {
+                    return null;
+                }
+                throw new IllegalArgumentException("Rejected Store content has no installation proof");
+            } catch (IllegalArgumentException | IllegalStateException exception) {
+                throw new IOException("Plugin installation proof verification failed for "
+                        + identity.getPluginId(), exception);
+            }
+        }
+    }
+
     /// Creates an unloaded source-scoped store client.
     public PluginStoreManager() {
-        this(DEFAULT_TRUST_VERIFIER, null, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator());
+        this(DEFAULT_TRUST_VERIFIER, null, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator(),
+                PluginStoreManager::openValidatedConnection);
     }
 
     /// Creates an unloaded client with an explicit GitHub raw-content base for package-local tests.
     ///
     /// @param githubRawBaseUrl raw-content base used for Topic repository manifests
     PluginStoreManager(String githubRawBaseUrl) {
-        this(DEFAULT_TRUST_VERIFIER, null, githubRawBaseUrl, createDefaultCompatibilityEvaluator());
+        this(DEFAULT_TRUST_VERIFIER, null, githubRawBaseUrl, createDefaultCompatibilityEvaluator(),
+                PluginStoreManager::openValidatedConnection);
     }
 
     /// Creates an unloaded client with a deterministic compatibility evaluator for package-local tests.
     ///
     /// @param compatibilityEvaluator evaluator with the desired runtime registry and host platform
     PluginStoreManager(PluginCompatibilityEvaluator compatibilityEvaluator) {
-        this(DEFAULT_TRUST_VERIFIER, null, GITHUB_RAW_BASE_URL, compatibilityEvaluator);
+        this(DEFAULT_TRUST_VERIFIER, null, GITHUB_RAW_BASE_URL, compatibilityEvaluator,
+                PluginStoreManager::openValidatedConnection);
     }
 
     /// Loads the embedded plugin trust root for process-wide default Store behavior.
@@ -254,7 +418,8 @@ public final class PluginStoreManager {
 
     /// Creates a store manager with an explicit verifier for package-local tests.
     PluginStoreManager(PluginTrustVerifier trustVerifier) {
-        this(trustVerifier, null, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator());
+        this(trustVerifier, null, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator(),
+                PluginStoreManager::openValidatedConnection);
     }
 
     /// Creates a store manager with explicit trust and status services for package-local tests.
@@ -262,7 +427,22 @@ public final class PluginStoreManager {
     /// @param trustVerifier role-separated signature verifier
     /// @param trustStatusCache legacy authenticated status cache, or `null` under the current policy
     PluginStoreManager(PluginTrustVerifier trustVerifier, @Nullable PluginTrustStatusCache trustStatusCache) {
-        this(trustVerifier, trustStatusCache, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator());
+        this(trustVerifier, trustStatusCache, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator(),
+                PluginStoreManager::openValidatedConnection);
+    }
+
+    /// Creates a manager with explicit trust services and package transport for package-local tests.
+    ///
+    /// @param trustVerifier role-separated signature verifier
+    /// @param trustStatusCache authenticated trust-status cache
+    /// @param packageConnectionFactory deterministic package transport invoked only after URL validation
+    PluginStoreManager(
+            PluginTrustVerifier trustVerifier,
+            PluginTrustStatusCache trustStatusCache,
+            PackageConnectionFactory packageConnectionFactory
+    ) {
+        this(trustVerifier, trustStatusCache, GITHUB_RAW_BASE_URL, createDefaultCompatibilityEvaluator(),
+                packageConnectionFactory);
     }
 
     /// Creates a store manager with explicit trust, status, and Topic transport dependencies.
@@ -271,16 +451,19 @@ public final class PluginStoreManager {
     /// @param trustStatusCache legacy authenticated status cache, or `null` under the current policy
     /// @param githubRawBaseUrl raw-content base used for Topic repository manifests
     /// @param compatibilityEvaluator shared compatibility evaluator for store filtering
+    /// @param packageConnectionFactory validated package transport
     private PluginStoreManager(
             PluginTrustVerifier trustVerifier,
             @Nullable PluginTrustStatusCache trustStatusCache,
             String githubRawBaseUrl,
-            PluginCompatibilityEvaluator compatibilityEvaluator
+            PluginCompatibilityEvaluator compatibilityEvaluator,
+            PackageConnectionFactory packageConnectionFactory
     ) {
         this.trustVerifier = Objects.requireNonNull(trustVerifier, "trustVerifier");
         this.trustStatusCache = trustStatusCache;
         this.githubRawBaseUrl = Objects.requireNonNull(githubRawBaseUrl, "githubRawBaseUrl");
         this.compatibilityEvaluator = Objects.requireNonNull(compatibilityEvaluator, "compatibilityEvaluator");
+        this.packageConnectionFactory = Objects.requireNonNull(packageConnectionFactory, "packageConnectionFactory");
     }
 
     /// Loads and validates one plugin source without persisting user configuration.
@@ -301,6 +484,7 @@ public final class PluginStoreManager {
                     source,
                     discovery.registry(),
                     PluginTrustResult.community(),
+                    null,
                     discovery.manifestContents(),
                     discovery.repositoryIdentities(),
                     discovery.skippedRepositoryCount()
@@ -318,7 +502,15 @@ public final class PluginStoreManager {
                 }
             }
         }
-        context = new SourceContext(source, loaded.registry(), loaded.trust(), Map.of(), identities, 0);
+        context = new SourceContext(
+                source,
+                loaded.registry(),
+                loaded.trust(),
+                loaded.registryEnvelopeUtf8(),
+                Map.of(),
+                identities,
+                0
+        );
     }
 
     /// Attempts a due root-controlled status refresh without making an offline source load fail.
@@ -374,8 +566,12 @@ public final class PluginStoreManager {
         validateRemoteUrl(registryUrl, "plugin registry");
         LOG.info("Loading plugin registry from: " + PluginSourceLabels.diagnosticUrl(registryUrl));
         try {
-            String content = fetchBoundedUtf8(registryUrl, "plugin registry", MAX_REGISTRY_BYTES);
-            JsonElement document = JsonParser.parseString(content);
+            BoundedUtf8Document content = fetchBoundedUtf8(
+                    registryUrl,
+                    "plugin registry",
+                    MAX_REGISTRY_BYTES
+            );
+            JsonElement document = JsonParser.parseString(content.text());
             if (!document.isJsonObject()) {
                 throw new IOException("Plugin registry is not an object");
             }
@@ -401,7 +597,7 @@ public final class PluginStoreManager {
             }
 
             LOG.info("Loaded " + loadedRegistry.getPlugins().size() + " plugins from registry");
-            return new RegistryLoad(loadedRegistry, verification.trust());
+            return new RegistryLoad(loadedRegistry, verification.trust(), content.exactBytes());
         } catch (JsonParseException exception) {
             throw new IOException("Failed to parse plugin registry", exception);
         }
@@ -445,19 +641,19 @@ public final class PluginStoreManager {
             String pluginId,
             String manifestUrl
     ) throws IOException {
-        @Nullable PluginStoreManifest cached = sourceContext.manifestCache.get(manifestUrl);
+        @Nullable CachedManifest cached = sourceContext.manifestCache.get(manifestUrl);
         if (cached != null) {
-            if (!pluginId.equals(cached.getId())) {
+            if (!pluginId.equals(cached.manifest().getId())) {
                 throw new IOException("Cached plugin manifest ID mismatch for " + pluginId);
             }
-            return cached;
+            return cached.manifest();
         }
 
         validateRemoteUrl(manifestUrl, "plugin manifest");
         LOG.info("Fetching plugin manifest from: " + PluginSourceLabels.diagnosticUrl(manifestUrl));
         try {
-            String content = sourceContext.prefetchedManifestContents.containsKey(manifestUrl)
-                    ? sourceContext.prefetchedManifestContents.get(manifestUrl)
+            BoundedUtf8Document content = sourceContext.prefetchedManifestContents.containsKey(manifestUrl)
+                    ? BoundedUtf8Document.fromTrustedText(sourceContext.prefetchedManifestContents.get(manifestUrl))
                     : fetchBoundedUtf8(manifestUrl, "plugin manifest", MAX_STORE_MANIFEST_BYTES);
             if (sourceContext.registryTrust.level() == PluginTrustLevel.OFFICIAL) {
                 @Nullable PluginStoreRegistry.PluginStoreEntry entry = sourceContext.registry.findPlugin(pluginId);
@@ -465,13 +661,13 @@ public final class PluginStoreManager {
                     throw new IOException("Official registry manifest identity mismatch for " + pluginId);
                 }
                 String actualManifestSha256 = HexFormat.of().formatHex(
-                        createSha256().digest(content.getBytes(StandardCharsets.UTF_8))
+                        createSha256().digest(content.exactBytes())
                 );
                 if (!entry.getManifestSha256().equals(actualManifestSha256)) {
                     throw new IOException("Official plugin manifest SHA-256 mismatch for " + pluginId);
                 }
             }
-            JsonElement document = JsonParser.parseString(content);
+            JsonElement document = JsonParser.parseString(content.text());
             if (!document.isJsonObject()) {
                 throw new IOException("Plugin manifest is not an object");
             }
@@ -497,13 +693,15 @@ public final class PluginStoreManager {
                 }
             }
             assignVersionTrust(manifest, verification.trust());
-            sourceContext.manifestCache.put(manifestUrl, manifest);
             @Nullable PluginStoreManifest.PluginVersionEntry latest = manifest.getLatestVersion();
-            sourceContext.manifestTrust.put(
-                    manifestUrl,
-                    latest == null ? verification.trust() : latest.getTrust()
-            );
-            return manifest;
+            PluginTrustResult manifestTrust = latest == null ? verification.trust() : latest.getTrust();
+            CachedManifest candidate = new CachedManifest(manifest, content.exactBytes(), manifestTrust);
+            @Nullable CachedManifest existing = sourceContext.manifestCache.putIfAbsent(manifestUrl, candidate);
+            CachedManifest published = existing == null ? candidate : existing;
+            if (!pluginId.equals(published.manifest().getId())) {
+                throw new IOException("Cached plugin manifest ID mismatch for " + pluginId);
+            }
+            return published.manifest();
         } catch (JsonParseException exception) {
             throw new IOException("Failed to parse plugin manifest", exception);
         }
@@ -682,7 +880,7 @@ public final class PluginStoreManager {
                         entry,
                         getPluginManifest(sourceContext, entry.getId(), entry.getManifestUrl()),
                         sourceContext,
-                        sourceContext.manifestTrust.getOrDefault(entry.getManifestUrl(), PluginTrustResult.community())
+                        Objects.requireNonNull(sourceContext.manifestCache.get(entry.getManifestUrl())).trust()
                 ));
             } catch (IOException exception) {
                 LOG.warning("Failed to load plugin manifest: " + entry.getId());
@@ -701,7 +899,15 @@ public final class PluginStoreManager {
     }
 
     /// Registry payload and its derived trust decision.
-    private record RegistryLoad(PluginStoreRegistry registry, PluginTrustResult trust) {
+    private record RegistryLoad(
+            PluginStoreRegistry registry,
+            PluginTrustResult trust,
+            byte @Unmodifiable [] registryEnvelopeUtf8
+    ) {
+        /// Defensively retains exact registry bytes while the source context is assembled.
+        private RegistryLoad {
+            registryEnvelopeUtf8 = registryEnvelopeUtf8.clone();
+        }
     }
 
     /// Cached weekly repository proof or one credential-safe failure.
@@ -840,8 +1046,9 @@ public final class PluginStoreManager {
                 pluginId,
                 version,
                 artifact,
-                targetDirectory.resolve(pluginId + ".npl")
-        );
+                targetDirectory.resolve(pluginId + ".npl"),
+                null
+        ).stagedPath();
     }
 
     /// Downloads and fully validates a package in a staging directory without touching installed files.
@@ -865,7 +1072,78 @@ public final class PluginStoreManager {
                 pluginId,
                 version,
                 artifact,
-                stagingDirectory.resolve(pluginId + "-" + checksumPrefix + ".npl")
+                stagingDirectory.resolve(pluginId + "-" + checksumPrefix + ".npl"),
+                null
+        ).stagedPath();
+    }
+
+    /// Downloads and fully validates one source-bound package while retaining concrete installation proof.
+    ///
+    /// The supplied version must be the exact instance published by the manager's captured source generation.
+    /// The returned proof records verified installation evidence only and does not authorize package execution.
+    ///
+    /// @param pluginId validated plugin ID
+    /// @param version exact source-bound remote version metadata
+    /// @param stagingDirectory isolated staging directory
+    /// @return normalized staged path, exact artifact identity and size, and source-derived proof when applicable
+    /// @throws IOException if source binding, compatibility, transport, or package verification fails
+    public PluginVerifiedDownload downloadPluginToStagingWithProof(
+            String pluginId,
+            PluginStoreManifest.PluginVersionEntry version,
+            Path stagingDirectory
+    ) throws IOException {
+        SourceContext sourceContext = requireContext();
+        @Nullable PluginStoreRegistry.PluginStoreEntry entry = sourceContext.registry.findPlugin(pluginId);
+        if (entry == null) {
+            throw new IOException("Selected plugin is absent from the captured source generation");
+        }
+        @Nullable CachedManifest cachedManifest = sourceContext.manifestCache.get(entry.getManifestUrl());
+        if (cachedManifest == null
+                || cachedManifest.manifest().getVersion(version.getVersion()) != version) {
+            throw new IOException("Selected plugin version is not bound to the captured source generation");
+        }
+        PluginStoreArtifact artifact = version.requireArtifact(compatibilityEvaluator.getHostPlatform());
+        PluginTrustResult proofTrust;
+        if (sourceContext.registryTrust.level() == PluginTrustLevel.OFFICIAL) {
+            proofTrust = sourceContext.registryTrust;
+        } else if (version.hasCertificationDeclaration()) {
+            @Nullable String repositoryIdentity = sourceContext.repositoryIdentities.get(entry.getManifestUrl());
+            RepositoryAttestationResolution repositoryResolution = resolveRepositoryAttestation(
+                    sourceContext,
+                    cachedManifest.manifest(),
+                    repositoryIdentity,
+                    version
+            );
+            proofTrust = evaluateCertifiedVersion(
+                    cachedManifest.manifest(),
+                    repositoryIdentity,
+                    repositoryResolution,
+                    version,
+                    artifact
+            );
+        } else {
+            proofTrust = PluginTrustResult.community();
+        }
+        if (!proofTrust.canInstall()) {
+            throw new IOException("Plugin trust verification rejected " + pluginId + ": " + proofTrust.detail());
+        }
+        if (proofTrust.level() == PluginTrustLevel.CERTIFIED
+                && proofTrust.certificationReceipt() == null) {
+            throw new IOException("Certified plugin has no complete installation receipt: " + pluginId);
+        }
+        DownloadProofContext proofContext = new DownloadProofContext(
+                sourceContext,
+                entry,
+                cachedManifest,
+                proofTrust
+        );
+        String checksumPrefix = artifact.sha256().substring(0, 12).toLowerCase(Locale.ROOT);
+        return downloadPluginToFile(
+                pluginId,
+                version,
+                artifact,
+                stagingDirectory.resolve(pluginId + "-" + checksumPrefix + ".npl"),
+                proofContext
         );
     }
 
@@ -875,15 +1153,19 @@ public final class PluginStoreManager {
     /// @param version selected remote version metadata
     /// @param artifact exact current-platform package metadata
     /// @param targetFile final package path
+    /// @param proofContext captured proof inputs, or `null` for compatibility download APIs
     /// @return verified target path
     /// @throws IOException if compatibility, transport, size, checksum, metadata, or replacement fails
-    private Path downloadPluginToFile(
+    private PluginVerifiedDownload downloadPluginToFile(
             String pluginId,
             PluginStoreManifest.PluginVersionEntry version,
             PluginStoreArtifact artifact,
-            Path targetFile
+            Path targetFile,
+            @Nullable DownloadProofContext proofContext
     ) throws IOException {
-        PluginTrustResult currentTrust = refreshDownloadTrust(pluginId, version, artifact);
+        PluginTrustResult currentTrust = proofContext == null
+                ? refreshDownloadTrust(pluginId, version, artifact)
+                : proofContext.trustDecision();
         if (!currentTrust.canInstall()) {
             throw new IOException("Plugin trust verification rejected " + pluginId + ": " + currentTrust.detail());
         }
@@ -912,7 +1194,7 @@ public final class PluginStoreManager {
 
         @Nullable HttpURLConnection connection = null;
         try {
-            connection = openValidatedConnection(artifact.packageUrl(), "plugin package");
+            connection = packageConnectionFactory.open(artifact.packageUrl(), "plugin package");
             int responseCode = connection.getResponseCode();
             if (responseCode / 100 != 2) {
                 throw new IOException("Plugin package request failed with HTTP " + responseCode);
@@ -954,6 +1236,14 @@ public final class PluginStoreManager {
                         + ", got " + actualHash);
             }
             validateDownloadedPackage(temporaryFile, pluginId, version);
+            PluginArtifactIdentity identity = new PluginArtifactIdentity(
+                    pluginId,
+                    version.getVersion(),
+                    actualHash
+            );
+            @Nullable PluginInstallationTrustProof trustProof = proofContext == null
+                    ? null
+                    : proofContext.createAndVerifyProof(artifact, identity, totalBytes);
             try {
                 Files.move(
                         temporaryFile,
@@ -965,7 +1255,12 @@ public final class PluginStoreManager {
                 Files.move(temporaryFile, normalizedTarget, StandardCopyOption.REPLACE_EXISTING);
             }
             LOG.info("Downloaded and verified plugin package: " + normalizedTarget);
-            return normalizedTarget;
+            return new PluginVerifiedDownload(
+                    normalizedTarget,
+                    identity,
+                    totalBytes,
+                    trustProof
+            );
         } finally {
             Files.deleteIfExists(temporaryFile);
         }
@@ -991,10 +1286,12 @@ public final class PluginStoreManager {
         if (entry == null) {
             return PluginTrustResult.rejected("selected plugin is absent from its source registry");
         }
-        @Nullable PluginStoreManifest manifest = sourceContext.manifestCache.get(entry.getManifestUrl());
-        if (manifest == null || manifest.getVersion(version.getVersion()) != version) {
+        @Nullable CachedManifest cachedManifest = sourceContext.manifestCache.get(entry.getManifestUrl());
+        if (cachedManifest == null
+                || cachedManifest.manifest().getVersion(version.getVersion()) != version) {
             return PluginTrustResult.rejected("selected plugin version is not bound to the current source generation");
         }
+        PluginStoreManifest manifest = cachedManifest.manifest();
         @Nullable String repositoryIdentity = sourceContext.repositoryIdentities.get(entry.getManifestUrl());
         RepositoryAttestationResolution repositoryResolution = resolveRepositoryAttestation(
                 sourceContext,
@@ -1175,7 +1472,7 @@ public final class PluginStoreManager {
             return cached;
         }
 
-        String readme = fetchBoundedUtf8(readmeUrl, "plugin README", MAX_README_BYTES);
+        String readme = fetchBoundedUtf8(readmeUrl, "plugin README", MAX_README_BYTES).text();
         readmeCache.put(readmeUrl, readme);
         return readme;
     }
@@ -1224,7 +1521,11 @@ public final class PluginStoreManager {
     /// @param maximumBytes maximum accepted response bytes
     /// @return decoded UTF-8 response
     /// @throws IOException if URL policy, transport, status, or size validation fails
-    private static String fetchBoundedUtf8(String url, String purpose, int maximumBytes) throws IOException {
+    private static BoundedUtf8Document fetchBoundedUtf8(
+            String url,
+            String purpose,
+            int maximumBytes
+    ) throws IOException {
         @Nullable HttpURLConnection connection = null;
         try {
             connection = openValidatedConnection(url, purpose);
@@ -1243,11 +1544,74 @@ public final class PluginStoreManager {
             if (bytes.length > maximumBytes) {
                 throw new IOException(purpose + " exceeds the maximum allowed size");
             }
-            return new String(bytes, StandardCharsets.UTF_8);
+            return BoundedUtf8Document.fromRemote(bytes, purpose);
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
+        }
+    }
+
+    /// Immutable exact byte sequence and its strict UTF-8 decoding from one bounded response.
+    @NotNullByDefault
+    private static final class BoundedUtf8Document {
+        /// Exact response bytes retained without decoding replacement.
+        private final byte @Unmodifiable [] exactBytes;
+
+        /// Strict decoded UTF-8 text corresponding byte-for-byte to [#exactBytes].
+        private final String text;
+
+        /// Retains one exact byte sequence and its strict decoding.
+        ///
+        /// @param exactBytes exact bounded response bytes
+        /// @param text strict UTF-8 decoding
+        private BoundedUtf8Document(byte @Unmodifiable [] exactBytes, String text) {
+            this.exactBytes = exactBytes.clone();
+            this.text = Objects.requireNonNull(text, "text");
+        }
+
+        /// Strictly decodes untrusted response bytes without replacement characters.
+        ///
+        /// @param exactBytes exact bounded response bytes
+        /// @param purpose document description for diagnostics
+        /// @return immutable exact response and decoded text
+        /// @throws IOException if the bytes are not valid UTF-8
+        private static BoundedUtf8Document fromRemote(
+                byte @Unmodifiable [] exactBytes,
+                String purpose
+        ) throws IOException {
+            try {
+                String decoded = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(exactBytes))
+                        .toString();
+                return new BoundedUtf8Document(exactBytes, decoded);
+            } catch (CharacterCodingException exception) {
+                throw new IOException(purpose + " is not valid UTF-8", exception);
+            }
+        }
+
+        /// Encodes trusted discovery text for the common atomic manifest cache.
+        ///
+        /// @param text already decoded discovery manifest text
+        /// @return immutable byte and text pair
+        private static BoundedUtf8Document fromTrustedText(String text) {
+            return new BoundedUtf8Document(text.getBytes(StandardCharsets.UTF_8), text);
+        }
+
+        /// Returns a defensive copy of the exact response bytes.
+        ///
+        /// @return exact bounded response bytes
+        private byte @Unmodifiable [] exactBytes() {
+            return exactBytes.clone();
+        }
+
+        /// Returns the strict UTF-8 decoding.
+        ///
+        /// @return decoded response text
+        private String text() {
+            return text;
         }
     }
 

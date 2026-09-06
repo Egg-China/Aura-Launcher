@@ -30,7 +30,7 @@ import org.jackhuang.hmcl.plugin.store.PluginStoreManager;
 import org.jackhuang.hmcl.plugin.store.PluginStoreManifest;
 import org.jackhuang.hmcl.plugin.store.PluginStoreRegistry;
 import org.jackhuang.hmcl.plugin.store.PluginStoreSnapshot;
-import org.jackhuang.hmcl.plugin.trust.PluginCertificationReceipt;
+import org.jackhuang.hmcl.plugin.trust.PluginInstallationTrustProof;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustLevel;
 import org.jackhuang.hmcl.plugin.trust.PluginTrustResult;
 import org.jackhuang.hmcl.ui.SVG;
@@ -89,18 +89,18 @@ public final class PluginStorePageTest {
         assertEquals(Long.valueOf(73), PluginStorePage.selectedVersionSize(manifest.getVersions().get(0)));
     }
 
-    /// Allows official-reference certification to proceed without a legacy proof receipt.
+    /// Omits only packages whose verified download carries no structural trust proof.
     @Test
-    public void delegatedCertificationDoesNotRequireInstallationReceipt() {
-        Map<String, PluginCertificationReceipt> receipts = new LinkedHashMap<>();
+    public void communityDownloadDoesNotProduceInstallationProof() {
+        Map<String, PluginInstallationTrustProof> proofs = new LinkedHashMap<>();
 
-        PluginStorePage.collectCertificationReceipt(
-                receipts,
-                "dev.test.delegated",
-                PluginTrustResult.certifiedByOfficialReference()
+        PluginStorePage.collectInstallationTrustProof(
+                proofs,
+                "dev.test.community",
+                null
         );
 
-        assertTrue(receipts.isEmpty());
+        assertTrue(proofs.isEmpty());
     }
 
     /// Changes certification text and installation availability with the exact selected version's trust result.
