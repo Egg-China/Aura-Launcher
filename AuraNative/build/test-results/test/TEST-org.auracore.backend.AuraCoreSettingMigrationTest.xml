@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.auracore.backend.AuraCoreSettingMigrationTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-06T11:54:48.616Z" hostname="DESKTOP-MJL9VE1" time="0.009">
+  <properties/>
+  <testcase name="metaUrlOverrideIsAllowListed()" classname="org.auracore.backend.AuraCoreSettingMigrationTest" time="0.002"/>
+  <testcase name="pluginKeysAreNeverAllowListed()" classname="org.auracore.backend.AuraCoreSettingMigrationTest" time="0.001"/>
+  <testcase name="launcherKeysStayOrdered()" classname="org.auracore.backend.AuraCoreSettingMigrationTest" time="0.002"/>
+  <testcase name="allowListIsImmutable()" classname="org.auracore.backend.AuraCoreSettingMigrationTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

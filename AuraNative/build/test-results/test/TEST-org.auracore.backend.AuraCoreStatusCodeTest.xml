@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.auracore.backend.AuraCoreStatusCodeTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-06T11:54:48.626Z" hostname="DESKTOP-MJL9VE1" time="0.069">
+  <properties/>
+  <testcase name="rejectsUnknownValues()" classname="org.auracore.backend.AuraCoreStatusCodeTest" time="0.001"/>
+  <testcase name="[1] &quot;0&quot;, &quot;OK&quot;" classname="org.auracore.backend.AuraCoreStatusCodeTest" time="0.019"/>
+  <testcase name="[2] &quot;1&quot;, &quot;INVALID_ARGUMENT&quot;" classname="org.auracore.backend.AuraCoreStatusCodeTest" time="0.001"/>
+  <testcase name="[3] &quot;2&quot;, &quot;BACKEND&quot;" classname="org.auracore.backend.AuraCoreStatusCodeTest" time="0.001"/>
+  <testcase name="[4] &quot;3&quot;, &quot;OUT_OF_MEMORY&quot;" classname="org.auracore.backend.AuraCoreStatusCodeTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

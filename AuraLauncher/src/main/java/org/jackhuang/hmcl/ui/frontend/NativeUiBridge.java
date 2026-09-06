@@ -17,6 +17,7 @@
  */
 package org.jackhuang.hmcl.ui.frontend;
 
+import org.jackhuang.hmcl.auracore.AuraCoreEngineManager;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.authlibinjector.AuthlibInjectorAccount;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
@@ -99,7 +100,11 @@ public final class NativeUiBridge {
                 return launchInstance(params);
             case "core.plugin.action":
                 return runPluginAction(params);
-            case "core.settings.set":
+            case "core.auracore.status":
+                return CompletableFuture.completedFuture(
+                        UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
+            case "core.auracore.migrate":
+                return migrateAuraCoreSettings();            case "core.settings.set":
                 return updateSettings(params);
             default:
                 return CompletableFuture.failedFuture(
@@ -107,6 +112,62 @@ public final class NativeUiBridge {
         }
     }
 
+    /// Builds the AuraCore native-engine status object for `core.auracore.status`.
+    ///
+    /// @return token-free map describing engine availability and migration scope
+    private static BridgeValue buildAuraCoreStatus() {
+        Map<String, BridgeValue> fields = new LinkedHashMap<>();
+        AuraCoreEngineManager manager = AuraCoreEngineManager.getInstance();
+        Map<String, Object> status = manager.status();
+        fields.put("engine", BridgeValue.string(settings().coreEngineProperty().get()));
+        fields.put("dataDirectory", stringOrEmpty(String.valueOf(status.get("dataDirectory"))));
+        fields.put("libraryPath", stringOrEmpty(String.valueOf(status.get("libraryPath"))));
+        fields.put("libraryAvailable", BridgeValue.bool(Boolean.TRUE.equals(status.get("libraryAvailable"))));
+        fields.put("backendRunning", BridgeValue.bool(Boolean.TRUE.equals(status.get("backendRunning"))));
+        List<BridgeValue> allowList = new ArrayList<>();
+        for (String key : manager.migrationAllowList()) {
+            allowList.add(BridgeValue.string(key));
+        }
+        fields.put("migrationAllowList", BridgeValue.array(allowList));
+        return BridgeValue.map(fields);
+    }
+
+    /// Copies the allowlisted launcher settings into the AuraCore backend.
+    ///
+    /// @return asynchronous reply carrying per-key migration outcomes
+    private static CompletionStage<UiFrontendCommandHandler.Reply> migrateAuraCoreSettings() {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("download.concurrent-downloads", settings().downloadThreadsProperty().get());
+        String backendProxy = backendProxyType(settings().proxyTypeProperty().get());
+        if (backendProxy != null) {
+            values.put("proxy.type", backendProxy);
+        }
+        values.put("proxy.host", settings().proxyHostProperty().get());
+        values.put("proxy.port", settings().proxyPortProperty().get());
+        values.put("proxy.user", settings().proxyUserProperty().get());
+        values.put("proxy.password", settings().proxyPasswordProperty().get());
+        return AuraCoreEngineManager.getInstance().migrateSettings(values).thenApply(outcomes -> {
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            outcomes.forEach((key, outcome) -> fields.put(key, BridgeValue.string(outcome)));
+            return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+        }).exceptionally(failure -> {
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+            return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+        });
+    }
+    /// Maps a launcher proxy type onto the AuraCore backend setting value.
+    ///
+    /// @param type the launcher-side proxy type
+    /// @return the backend ProxyType value, or null when no equivalent exists
+    private static @Nullable String backendProxyType(ProxyType type) {
+        return switch (type) {
+            case DIRECT -> "None";
+            case HTTP -> "Http";
+            case SOCKS -> "Sock";
+            case SYSTEM -> null;
+        };
+    }
     /// Builds the full launcher state snapshot consumed by the Modern UI.
     ///
     /// @return token-free map with instances, accounts, settings, and contributions
@@ -292,6 +353,7 @@ public final class NativeUiBridge {
     private static BridgeValue buildSettingsSnapshot() {
         Map<String, BridgeValue> exported = new LinkedHashMap<>();
         exported.put("uiFrontend", stringOrEmpty(settings().selectedUiFrontendProperty().get()));
+        exported.put("coreEngine", stringOrEmpty(settings().coreEngineProperty().get()));
         exported.put("downloadSource", BridgeValue.string(settings().fileDownloadSourceProperty().get().name()));
         exported.put("proxyType", BridgeValue.string(settings().proxyTypeProperty().get().name()));
         exported.put("proxyHost", stringOrEmpty(settings().proxyHostProperty().get()));
@@ -336,7 +398,14 @@ public final class NativeUiBridge {
     /// @return FX-thread write action
     private static Runnable settingsWrite(String key, BridgeValue value) {
         switch (key) {
-            case "uiFrontend":
+            case "coreEngine": {
+                String engine = requireString(key, value);
+                if (!AuraCoreEngineManager.ENGINE_HMCL.equals(engine)
+                        && !AuraCoreEngineManager.ENGINE_AURACORE.equals(engine)) {
+                    throw new IllegalArgumentException("Unsupported core engine: " + engine);
+                }
+                return () -> settings().coreEngineProperty().set(engine);
+            }            case "uiFrontend":
                 return () -> settings().selectedUiFrontendProperty().set(requireString(key, value));
             case "downloadSource":
                 return () -> settings().fileDownloadSourceProperty().set(
