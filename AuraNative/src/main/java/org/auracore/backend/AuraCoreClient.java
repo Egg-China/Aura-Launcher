@@ -344,6 +344,31 @@ public final class AuraCoreClient implements AutoCloseable {
         });
     }
 
+    /// Starts a Microsoft device-code login.
+    ///
+    /// @return the parsed reply containing the login task id
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> beginMsaLogin() {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_begin_msa_login(handle(), reference);
+            return read(status, handle(), reference);
+        });
+    }
+
+    /// Reads device-code login information for a task.
+    ///
+    /// @param taskId the login task identifier
+    /// @return the parsed reply carrying the verification URL and user code
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> msaLoginInfo(String taskId) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_msa_login_info(handle(), taskId, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
     /// Destroys the backend after pending work completes.
     @Override
     public void close() {

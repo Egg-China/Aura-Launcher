@@ -121,6 +121,10 @@ public final class NativeUiBridge {
                 return readAuraCoreInstanceLogs(params);
             case "core.auracore.instance.stop":
                 return stopAuraCoreInstance(params);
+            case "core.auracore.auth.msa.begin":
+                return beginAuraCoreMsaLogin();
+            case "core.auracore.auth.msa.info":
+                return auraCoreMsaLoginInfo(params);
             case "core.auracore.accounts.list":
                 return listAuraCoreAccounts();
             case "core.auracore.accounts.add-offline":
@@ -441,6 +445,26 @@ public final class NativeUiBridge {
             return value.value();
         }
         return null;
+    }
+
+    /// Starts a Microsoft device-code login through the AuraCore backend.
+    ///
+    /// @return asynchronous reply carrying the login task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> beginAuraCoreMsaLogin() {
+        return AuraCoreEngineManager.getInstance().start().beginMsaLogin()
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Reads device-code login information for one AuraCore login task.
+    ///
+    /// @param params command parameters carrying `taskId`
+    /// @return asynchronous reply carrying the verification URL and user code
+    private static CompletionStage<UiFrontendCommandHandler.Reply> auraCoreMsaLoginInfo(BridgeValue params) {
+        final String taskId = extractStringParameter(params, "taskId");
+        return AuraCoreEngineManager.getInstance().start().msaLoginInfo(taskId)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
     }
 
     /// Builds the full launcher state snapshot consumed by the Modern UI.
