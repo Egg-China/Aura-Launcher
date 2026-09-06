@@ -170,6 +170,58 @@ public final class AuraCoreClient implements AutoCloseable {
         });
     }
 
+
+    /// Starts creation of a vanilla instance.
+    ///
+    /// @param name the display name of the new instance
+    /// @param gameVersion the Minecraft version descriptor
+    /// @param group the optional group name, or null
+    /// @return the parsed creation reply containing the task id
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> createInstance(String name, String gameVersion, @Nullable String group) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_create_instance(handle(), name, gameVersion, group, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
+    /// Cancels a tracked task.
+    ///
+    /// @param taskId the identifier returned by a starting call
+    /// @return the parsed cancel reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<Boolean> cancelTask(String taskId) {
+        return submit(() -> nativeLibrary.auracore_cancel_task(handle(), taskId)
+                == AuraCoreStatusCode.OK.value());
+    }
+
+    /// Renames an instance and moves its directory when possible.
+    ///
+    /// @param id the instance identifier
+    /// @param newName the replacement display name
+    /// @return the parsed rename reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> renameInstance(String id, String newName) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_rename_instance(handle(), id, newName, reference);
+            return read(status, handle(), reference);
+        });
+    }
+
+    /// Stops a running instance process.
+    ///
+    /// @param id the instance identifier
+    /// @return the parsed stop reply
+    /// @throws AuraCoreException when the native call fails
+    public CompletableFuture<JsonElement> stopInstance(String id) {
+        return submit(() -> {
+            final PointerByReference reference = new PointerByReference();
+            final int status = nativeLibrary.auracore_stop_instance(handle(), id, reference);
+            return read(status, handle(), reference);
+        });
+    }
     /// Destroys the backend after pending work completes.
     @Override
     public void close() {

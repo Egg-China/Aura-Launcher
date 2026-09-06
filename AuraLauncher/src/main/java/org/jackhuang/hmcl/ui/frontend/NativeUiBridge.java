@@ -545,6 +545,9 @@ public final class NativeUiBridge {
     /// @return asynchronous reply performing the FX-thread launch
     private static CompletionStage<UiFrontendCommandHandler.Reply> launchInstance(BridgeValue params) {
         GameInstanceID instanceId = extractInstanceId(params);
+        if (AuraCoreEngineManager.ENGINE_AURACORE.equals(settings().coreEngineProperty().get())) {
+            return launchThroughAuraCore(instanceId);
+        }
         return CompletableFuture.completedFuture(new UiFrontendCommandHandler.Reply(
                 BridgeValue.nullValue(),
                 () -> FXUtils.runInFX(() -> {
@@ -553,6 +556,23 @@ public final class NativeUiBridge {
                     Instances.launch(repository, repository.getSelectedInstance());
                 })
         ));
+    }
+
+    /// Launches an instance through the native AuraCore backend.
+    ///
+    /// @param instanceId the AuraCore instance identifier
+    /// @return asynchronous reply carrying the native launch result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> launchThroughAuraCore(GameInstanceID instanceId) {
+        return AuraCoreEngineManager.getInstance().start().launchInstance(instanceId.id(), null, null)
+                .thenApply(reply -> UiFrontendCommandHandler.Reply.result(BridgeValue.string(
+                        reply.isJsonObject() && reply.getAsJsonObject().has("taskId")
+                                ? reply.getAsJsonObject().get("taskId").getAsString()
+                                : "")))
+                .exceptionally(failure -> {
+                    Map<String, BridgeValue> fields = new LinkedHashMap<>();
+                    fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+                    return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+                });
     }
 
     /// Extracts the required `id` string parameter as a game instance identifier.
