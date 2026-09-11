@@ -1,6 +1,7 @@
 package org.auracore.backend;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
@@ -9,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AuraCoreClientIntegrationTest {
@@ -111,11 +113,27 @@ class AuraCoreClientIntegrationTest {
             assertTrue(added.isJsonObject(), "add_offline_account must return an object");
             assertTrue(added.getAsJsonObject().has("profileName"), "account reply must carry the profile name");
 
-            client.setDefaultAccount("JVM Tester").get(30, TimeUnit.SECONDS);
+            client.addOfflineAccount("JVM Second").get(30, TimeUnit.SECONDS);
+            client.setDefaultAccount("JVM Second").get(30, TimeUnit.SECONDS);
             final JsonElement accounts = client.listAccounts().get(30, TimeUnit.SECONDS);
-            assertTrue(accounts.toString().contains("JVM Tester"), "account list must contain the profile");
+            assertTrue(accounts.isJsonArray(), "list_accounts must return a JSON array");
+            boolean firstIsDefault = false;
+            boolean secondIsDefault = false;
+            for (JsonElement entry : accounts.getAsJsonArray()) {
+                assertTrue(entry.isJsonObject(), "account entries must be objects");
+                final JsonObject account = entry.getAsJsonObject();
+                assertTrue(account.has("isDefault"), "account entries must carry the default marker");
+                if ("JVM Tester".equals(account.get("profileName").getAsString())) {
+                    firstIsDefault = account.get("isDefault").getAsBoolean();
+                } else if ("JVM Second".equals(account.get("profileName").getAsString())) {
+                    secondIsDefault = account.get("isDefault").getAsBoolean();
+                }
+            }
+            assertFalse(firstIsDefault, "the non-default account must not be flagged");
+            assertTrue(secondIsDefault, "the default account must be flagged");
 
             client.removeAccount("JVM Tester").get(30, TimeUnit.SECONDS);
+            client.removeAccount("JVM Second").get(30, TimeUnit.SECONDS);
             final JsonElement afterRemove = client.listAccounts().get(30, TimeUnit.SECONDS);
             assertTrue(!afterRemove.toString().contains("JVM Tester"), "removed account must disappear");
         }
