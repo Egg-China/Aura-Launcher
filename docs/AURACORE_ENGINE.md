@@ -92,7 +92,8 @@ Channel status:
 - `core.instance.launch` — launches through the backend when the AuraCore
   engine is selected, returning the backend task id.
 - `core.instance.export.multimc` — exports one launcher-side instance as a
-  MultiMC modpack archive (`id`, `output`, optional `name`).
+  MultiMC modpack archive (`id`, `output`, optional `name`, optional `whitelist`
+  array; an empty whitelist keeps every file outside the standard blacklist).
 - `core.auracore.instance.create` — create a vanilla instance (`name`,
   `version`, optional `group`).
 - `core.auracore.instance.list` — list the backend's own instances; native

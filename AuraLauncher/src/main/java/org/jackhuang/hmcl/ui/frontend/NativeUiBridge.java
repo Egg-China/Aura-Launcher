@@ -449,6 +449,25 @@ public final class NativeUiBridge {
                 .exceptionally(failure -> auraCoreError(failure.getMessage()));
     }
 
+    /// Extracts an optional array-of-strings parameter.
+    ///
+    /// @param params command parameters
+    /// @param key parameter key
+    /// @return the immutable string list, empty when absent or invalid
+    private static List<String> extractOptionalStringList(BridgeValue params, String key) {
+        if (!(params instanceof BridgeValue.MapValue map)
+                || !(map.values().get(key) instanceof BridgeValue.ArrayValue array)) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        for (BridgeValue entry : array.values()) {
+            if (entry instanceof BridgeValue.StringValue text && !text.value().isBlank()) {
+                values.add(text.value());
+            }
+        }
+        return List.copyOf(values);
+    }
+
     /// Extracts one optional string parameter.
     ///
     /// @param params command parameters
@@ -850,12 +869,13 @@ public final class NativeUiBridge {
         final GameInstanceID instanceId = extractInstanceId(params);
         final String output = extractStringParameter(params, "output");
         final String displayName = optionalStringParameter(params, "name");
+        final List<String> whitelist = extractOptionalStringList(params, "whitelist");
         return CompletableFuture.supplyAsync(() -> {
             HMCLGameRepository repository = GameDirectoryManager.getSelectedRepository();
             MultiMCModpackExportTask export = new MultiMCModpackExportTask(
                     repository,
                     instanceId,
-                    List.of(),
+                    whitelist,
                     new MultiMCInstanceConfiguration(
                             "OneSix",
                             displayName == null ? instanceId.id() : displayName,
