@@ -3,6 +3,21 @@
 The launcher can optionally drive instance launches through the native AuraCore
 backend instead of the built-in HMCL-derived Java core.
 
+## Partial replacement, not retirement
+
+AuraCore is an opt-in replacement for the launch core only. The HMCL-derived Java
+core stays the default, stays embedded, and remains the recovery path:
+
+- **Stays launcher-owned** — settings store, plugin system and trust state, UI
+  supervision, and the built-in JavaFX rescue interface never move to AuraCore.
+- **AuraCore owns while selected** — instances, accounts, launch tasks, and game
+  logs under its own `<local home>/auracore` data directory.
+- **Switching is reversible** — selecting `hmcl` again restores the Java core
+  path without deleting anything; migration into AuraCore copies an explicit
+  settings allowlist and never mutates HMCL-side data.
+- **Accounts and instances are intentionally isolated** — neither tokens nor
+  instance directories are imported across engines.
+
 ## Selecting the engine
 
 1. Place the backend shared library in the launcher data directory or set
