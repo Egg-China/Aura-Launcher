@@ -17,6 +17,7 @@
  */
 package org.jackhuang.hmcl.ui.frontend;
 
+import org.jackhuang.hmcl.auracore.AuraCoreEngineManager;
 import org.jackhuang.hmcl.auth.Account;
 import org.jackhuang.hmcl.auth.authlibinjector.AuthlibInjectorAccount;
 import org.jackhuang.hmcl.auth.microsoft.MicrosoftAccount;
@@ -99,12 +100,382 @@ public final class NativeUiBridge {
                 return launchInstance(params);
             case "core.plugin.action":
                 return runPluginAction(params);
+            case "core.auracore.status":
+                return CompletableFuture.completedFuture(
+                        UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
+            case "core.auracore.instance.rename":
+                return renameAuraCoreInstance(params);
+            case "core.auracore.instance.group":
+                return groupAuraCoreInstance(params);
+            case "core.auracore.instance.icon":
+                return iconAuraCoreInstance(params);
+            case "core.auracore.instance.delete":
+                return deleteAuraCoreInstance(params);
+            case "core.auracore.instance.list":
+                return listAuraCoreInstances();
+            case "core.auracore.task.status":
+                return auraCoreTaskStatus(params);
+            case "core.auracore.instance.export":
+                return exportAuraCoreInstance(params);
+            case "core.auracore.instance.import":
+                return importAuraCoreInstance(params);
+            case "core.auracore.instance.logs":
+                return readAuraCoreInstanceLogs(params);
+            case "core.auracore.instance.stop":
+                return stopAuraCoreInstance(params);
+            case "core.auracore.auth.msa.begin":
+                return beginAuraCoreMsaLogin();
+            case "core.auracore.auth.msa.info":
+                return auraCoreMsaLoginInfo(params);
+            case "core.auracore.accounts.list":
+                return listAuraCoreAccounts();
+            case "core.auracore.accounts.add-offline":
+                return addAuraCoreOfflineAccount(params);
+            case "core.auracore.accounts.remove":
+                return removeAuraCoreAccount(params);
+            case "core.auracore.accounts.set-default":
+                return setAuraCoreDefaultAccount(params);
+            case "core.auracore.instance.create":
+                return createAuraCoreInstance(params);
+            case "core.auracore.migrate":
+                return migrateAuraCoreSettings();
             case "core.settings.set":
                 return updateSettings(params);
             default:
                 return CompletableFuture.failedFuture(
                         new UnsupportedOperationException("Unsupported native UI command: " + method));
         }
+    }
+
+    /// Builds the AuraCore native-engine status object for `core.auracore.status`.
+    ///
+    /// @return token-free map describing engine availability and migration scope
+    private static BridgeValue buildAuraCoreStatus() {
+        Map<String, BridgeValue> fields = new LinkedHashMap<>();
+        AuraCoreEngineManager manager = AuraCoreEngineManager.getInstance();
+        Map<String, Object> status = manager.status();
+        fields.put("engine", BridgeValue.string(settings().coreEngineProperty().get()));
+        fields.put("dataDirectory", stringOrEmpty(String.valueOf(status.get("dataDirectory"))));
+        fields.put("libraryPath", stringOrEmpty(String.valueOf(status.get("libraryPath"))));
+        fields.put("libraryAvailable", BridgeValue.bool(Boolean.TRUE.equals(status.get("libraryAvailable"))));
+        fields.put("backendRunning", BridgeValue.bool(Boolean.TRUE.equals(status.get("backendRunning"))));
+        List<BridgeValue> allowList = new ArrayList<>();
+        for (String key : manager.migrationAllowList()) {
+            allowList.add(BridgeValue.string(key));
+        }
+        fields.put("migrationAllowList", BridgeValue.array(allowList));
+        return BridgeValue.map(fields);
+    }
+
+    /// Copies the allowlisted launcher settings into the AuraCore backend.
+    ///
+    /// @return asynchronous reply carrying per-key migration outcomes
+    private static CompletionStage<UiFrontendCommandHandler.Reply> migrateAuraCoreSettings() {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("download.concurrent-downloads", settings().downloadThreadsProperty().get());
+        String backendProxy = backendProxyType(settings().proxyTypeProperty().get());
+        if (backendProxy != null) {
+            values.put("proxy.type", backendProxy);
+        }
+        values.put("proxy.host", settings().proxyHostProperty().get());
+        values.put("proxy.port", settings().proxyPortProperty().get());
+        values.put("proxy.user", settings().proxyUserProperty().get());
+        values.put("proxy.password", settings().proxyPasswordProperty().get());
+        return AuraCoreEngineManager.getInstance().migrateSettings(values).thenApply(outcomes -> {
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            outcomes.forEach((key, outcome) -> fields.put(key, BridgeValue.string(outcome)));
+            return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+        }).exceptionally(failure -> {
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+            return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+        });
+    }
+
+    /// Maps a launcher proxy type onto the AuraCore backend setting value.
+    ///
+    /// @param type the launcher-side proxy type
+    /// @return the backend ProxyType value, or null when no equivalent exists
+    private static @Nullable String backendProxyType(ProxyType type) {
+        return switch (type) {
+            case DIRECT -> "None";
+            case HTTP -> "Http";
+            case SOCKS -> "Sock";
+            case SYSTEM -> null;
+        };
+    }
+
+    /// Creates a vanilla instance through the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `name` and `version`
+    /// @return asynchronous reply carrying the creation task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> createAuraCoreInstance(BridgeValue params) {
+        final String name = extractStringParameter(params, "name");
+        final String gameVersion = extractStringParameter(params, "version");
+        final String group;
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get("group") instanceof BridgeValue.StringValue groupValue
+                && !groupValue.value().isBlank()) {
+            group = groupValue.value();
+        } else {
+            group = null;
+        }
+        return AuraCoreEngineManager.getInstance().start().createInstance(name, gameVersion, group)
+                .thenApply(reply -> UiFrontendCommandHandler.Reply.result(BridgeValue.string(
+                        reply.isJsonObject() && reply.getAsJsonObject().has("taskId")
+                                ? reply.getAsJsonObject().get("taskId").getAsString()
+                                : "")))
+                .exceptionally(failure -> {
+                    Map<String, BridgeValue> fields = new LinkedHashMap<>();
+                    fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+                    return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+                });
+    }
+
+    /// Lists AuraCore backend instances for native-engine frontends.
+    ///
+    /// @return asynchronous reply carrying the backend instance array
+    private static CompletionStage<UiFrontendCommandHandler.Reply> listAuraCoreInstances() {
+        return AuraCoreEngineManager.getInstance().start().listInstances()
+                .thenApply(instances -> UiFrontendCommandHandler.Reply.result(toBridgeValue(instances)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Lists AuraCore accounts when the native engine is selected.
+    ///
+    /// @return asynchronous reply carrying the backend account array
+    private static CompletionStage<UiFrontendCommandHandler.Reply> listAuraCoreAccounts() {
+        return AuraCoreEngineManager.getInstance().start().listAccounts()
+                .thenApply(accounts -> UiFrontendCommandHandler.Reply.result(toBridgeValue(accounts)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Adds an offline account to the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `username`
+    /// @return asynchronous reply carrying the creation result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> addAuraCoreOfflineAccount(BridgeValue params) {
+        final String username = extractStringParameter(params, "username");
+        return AuraCoreEngineManager.getInstance().start().addOfflineAccount(username)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Removes an AuraCore account by profile name.
+    ///
+    /// @param params command parameters carrying `profile`
+    /// @return asynchronous reply carrying the removal result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> removeAuraCoreAccount(BridgeValue params) {
+        final String profile = extractStringParameter(params, "profile");
+        return AuraCoreEngineManager.getInstance().start().removeAccount(profile)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Selects the AuraCore account used by future launches.
+    ///
+    /// @param params command parameters carrying `profile`
+    /// @return asynchronous reply carrying the selection result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> setAuraCoreDefaultAccount(BridgeValue params) {
+        final String profile = extractStringParameter(params, "profile");
+        return AuraCoreEngineManager.getInstance().start().setDefaultAccount(profile)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Converts one parsed backend JSON reply into a bridge value.
+    ///
+    /// @param element the Gson element returned by the backend
+    /// @return the bridge representation of the same JSON value
+    private static BridgeValue toBridgeValue(com.google.gson.JsonElement element) {
+        if (element == null || element.isJsonNull()) {
+            return BridgeValue.nullValue();
+        }
+        if (element.isJsonPrimitive()) {
+            final com.google.gson.JsonPrimitive primitive = element.getAsJsonPrimitive();
+            if (primitive.isBoolean()) {
+                return BridgeValue.bool(primitive.getAsBoolean());
+            }
+            if (primitive.isNumber()) {
+                return BridgeValue.floating(primitive.getAsNumber().doubleValue());
+            }
+            return BridgeValue.string(primitive.getAsString());
+        }
+        if (element.isJsonArray()) {
+            List<BridgeValue> values = new ArrayList<>();
+            for (com.google.gson.JsonElement entry : element.getAsJsonArray()) {
+                values.add(toBridgeValue(entry));
+            }
+            return BridgeValue.array(values);
+        }
+        Map<String, BridgeValue> fields = new LinkedHashMap<>();
+        for (Map.Entry<String, com.google.gson.JsonElement> entry : element.getAsJsonObject().entrySet()) {
+            fields.put(entry.getKey(), toBridgeValue(entry.getValue()));
+        }
+        return BridgeValue.map(fields);
+    }
+
+    /// Builds the typed error reply used by AuraCore bridge commands.
+    ///
+    /// @param message the backend failure text
+    /// @return reply carrying `{ error }`
+    private static UiFrontendCommandHandler.Reply auraCoreError(@Nullable String message) {
+        Map<String, BridgeValue> fields = new LinkedHashMap<>();
+        fields.put("error", BridgeValue.string(message == null ? "unknown AuraCore failure" : message));
+        return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+    }
+
+    /// Reads launch logs from a running AuraCore instance.
+    ///
+    /// @param params command parameters carrying `id` and optional `maxLines`
+    /// @return asynchronous reply carrying the backend log object
+    private static CompletionStage<UiFrontendCommandHandler.Reply> readAuraCoreInstanceLogs(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final int maxLines;
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get("maxLines") instanceof BridgeValue.IntegerValue number) {
+            maxLines = (int) number.value();
+        } else {
+            maxLines = 0;
+        }
+        return AuraCoreEngineManager.getInstance().start().readInstanceLogs(id, maxLines)
+                .thenApply(logs -> UiFrontendCommandHandler.Reply.result(toBridgeValue(logs)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Stops a running AuraCore instance process.
+    ///
+    /// @param params command parameters carrying `id`
+    /// @return asynchronous reply carrying the stop result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> stopAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        return AuraCoreEngineManager.getInstance().start().stopInstance(id)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Starts a zip export through the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `id` and `output`
+    /// @return asynchronous reply carrying the export task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> exportAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String output = extractStringParameter(params, "output");
+        return AuraCoreEngineManager.getInstance().start().exportInstance(id, output)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Starts an instance import through the AuraCore backend.
+    ///
+    /// @param params command parameters carrying `source` and `name`
+    /// @return asynchronous reply carrying the import task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> importAuraCoreInstance(BridgeValue params) {
+        final String source = extractStringParameter(params, "source");
+        final String name = extractStringParameter(params, "name");
+        final String group;
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get("group") instanceof BridgeValue.StringValue groupValue
+                && !groupValue.value().isBlank()) {
+            group = groupValue.value();
+        } else {
+            group = null;
+        }
+        return AuraCoreEngineManager.getInstance().start().importInstance(source, name, group)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Renames an AuraCore instance.
+    ///
+    /// @param params command parameters carrying `id` and `name`
+    /// @return asynchronous reply carrying the rename result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> renameAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String name = extractStringParameter(params, "name");
+        return AuraCoreEngineManager.getInstance().start().renameInstance(id, name)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Moves an AuraCore instance into a group.
+    ///
+    /// @param params command parameters carrying `id` and optional `group`
+    /// @return asynchronous reply carrying the group result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> groupAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String group = optionalStringParameter(params, "group");
+        return AuraCoreEngineManager.getInstance().start().setInstanceGroup(id, group)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Sets the icon key of an AuraCore instance.
+    ///
+    /// @param params command parameters carrying `id` and `icon`
+    /// @return asynchronous reply carrying the icon result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> iconAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        final String icon = extractStringParameter(params, "icon");
+        return AuraCoreEngineManager.getInstance().start().setInstanceIcon(id, icon)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Deletes an AuraCore instance directory.
+    ///
+    /// @param params command parameters carrying `id`
+    /// @return asynchronous reply carrying the delete result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> deleteAuraCoreInstance(BridgeValue params) {
+        final String id = extractStringParameter(params, "id");
+        return AuraCoreEngineManager.getInstance().start().deleteInstance(id)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Reads one AuraCore task status snapshot.
+    ///
+    /// @param params command parameters carrying `taskId`
+    /// @return asynchronous reply carrying the task status
+    private static CompletionStage<UiFrontendCommandHandler.Reply> auraCoreTaskStatus(BridgeValue params) {
+        final String taskId = extractStringParameter(params, "taskId");
+        return AuraCoreEngineManager.getInstance().start().taskStatus(taskId)
+                .thenApply(status -> UiFrontendCommandHandler.Reply.result(toBridgeValue(status)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Extracts one optional string parameter.
+    ///
+    /// @param params command parameters
+    /// @param key parameter key
+    /// @return the string value or null when absent or blank
+    private static @Nullable String optionalStringParameter(BridgeValue params, String key) {
+        if (params instanceof BridgeValue.MapValue map
+                && map.values().get(key) instanceof BridgeValue.StringValue value
+                && !value.value().isBlank()) {
+            return value.value();
+        }
+        return null;
+    }
+
+    /// Starts a Microsoft device-code login through the AuraCore backend.
+    ///
+    /// @return asynchronous reply carrying the login task id
+    private static CompletionStage<UiFrontendCommandHandler.Reply> beginAuraCoreMsaLogin() {
+        return AuraCoreEngineManager.getInstance().start().beginMsaLogin()
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
+    }
+
+    /// Reads device-code login information for one AuraCore login task.
+    ///
+    /// @param params command parameters carrying `taskId`
+    /// @return asynchronous reply carrying the verification URL and user code
+    private static CompletionStage<UiFrontendCommandHandler.Reply> auraCoreMsaLoginInfo(BridgeValue params) {
+        final String taskId = extractStringParameter(params, "taskId");
+        return AuraCoreEngineManager.getInstance().start().msaLoginInfo(taskId)
+                .thenApply(result -> UiFrontendCommandHandler.Reply.result(toBridgeValue(result)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
     }
 
     /// Builds the full launcher state snapshot consumed by the Modern UI.
@@ -292,6 +663,7 @@ public final class NativeUiBridge {
     private static BridgeValue buildSettingsSnapshot() {
         Map<String, BridgeValue> exported = new LinkedHashMap<>();
         exported.put("uiFrontend", stringOrEmpty(settings().selectedUiFrontendProperty().get()));
+        exported.put("coreEngine", stringOrEmpty(settings().coreEngineProperty().get()));
         exported.put("downloadSource", BridgeValue.string(settings().fileDownloadSourceProperty().get().name()));
         exported.put("proxyType", BridgeValue.string(settings().proxyTypeProperty().get().name()));
         exported.put("proxyHost", stringOrEmpty(settings().proxyHostProperty().get()));
@@ -336,6 +708,14 @@ public final class NativeUiBridge {
     /// @return FX-thread write action
     private static Runnable settingsWrite(String key, BridgeValue value) {
         switch (key) {
+            case "coreEngine": {
+                String engine = requireString(key, value);
+                if (!AuraCoreEngineManager.ENGINE_HMCL.equals(engine)
+                        && !AuraCoreEngineManager.ENGINE_AURACORE.equals(engine)) {
+                    throw new IllegalArgumentException("Unsupported core engine: " + engine);
+                }
+                return () -> settings().coreEngineProperty().set(engine);
+            }
             case "uiFrontend":
                 return () -> settings().selectedUiFrontendProperty().set(requireString(key, value));
             case "downloadSource":
@@ -476,6 +856,9 @@ public final class NativeUiBridge {
     /// @return asynchronous reply performing the FX-thread launch
     private static CompletionStage<UiFrontendCommandHandler.Reply> launchInstance(BridgeValue params) {
         GameInstanceID instanceId = extractInstanceId(params);
+        if (AuraCoreEngineManager.ENGINE_AURACORE.equals(settings().coreEngineProperty().get())) {
+            return launchThroughAuraCore(instanceId);
+        }
         return CompletableFuture.completedFuture(new UiFrontendCommandHandler.Reply(
                 BridgeValue.nullValue(),
                 () -> FXUtils.runInFX(() -> {
@@ -484,6 +867,23 @@ public final class NativeUiBridge {
                     Instances.launch(repository, repository.getSelectedInstance());
                 })
         ));
+    }
+
+    /// Launches an instance through the native AuraCore backend.
+    ///
+    /// @param instanceId the AuraCore instance identifier
+    /// @return asynchronous reply carrying the native launch result
+    private static CompletionStage<UiFrontendCommandHandler.Reply> launchThroughAuraCore(GameInstanceID instanceId) {
+        return AuraCoreEngineManager.getInstance().start().launchInstance(instanceId.id(), null, null)
+                .thenApply(reply -> UiFrontendCommandHandler.Reply.result(BridgeValue.string(
+                        reply.isJsonObject() && reply.getAsJsonObject().has("taskId")
+                                ? reply.getAsJsonObject().get("taskId").getAsString()
+                                : "")))
+                .exceptionally(failure -> {
+                    Map<String, BridgeValue> fields = new LinkedHashMap<>();
+                    fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+                    return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+                });
     }
 
     /// Extracts the required `id` string parameter as a game instance identifier.

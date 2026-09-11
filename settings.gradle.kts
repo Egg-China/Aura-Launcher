@@ -1,6 +1,7 @@
 rootProject.name = "AuraLauncher"
 include(
     "AuraLauncher",
+    "AuraNative",
     "AuraCore",
     "AuraBoot"
 )

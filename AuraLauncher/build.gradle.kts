@@ -86,6 +86,7 @@ sourceSets {
 
 dependencies {
     implementation(project(":AuraCore"))
+implementation(project(":AuraNative"))
     implementation(project(":AuraBoot"))
     implementation("libs:JFoenix")
     implementation(libs.jwebp)

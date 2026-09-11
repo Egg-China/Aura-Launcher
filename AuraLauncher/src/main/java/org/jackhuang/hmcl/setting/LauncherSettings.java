@@ -633,6 +633,26 @@ public final class LauncherSettings extends ObservableSetting implements JsonSch
         return selectedUiFrontend;
     }
 
+    /// The JSON property name for the selected launcher core engine.
+    static final String PROPERTY_CORE_ENGINE = "coreEngine";
+
+    /// Default launcher core engine: the HMCL-derived Java core.
+    ///
+    /// The AuraCore native engine stays opt-in until it reaches feature completeness.
+    public static final String DEFAULT_CORE_ENGINE = "hmcl";
+
+    /// The launcher core engine selected for the next launch cycle.
+    ///
+    /// Values are `hmcl` for the built-in Java core and `auracore` for the native AuraCore backend.
+    @SerializedName(PROPERTY_CORE_ENGINE)
+    private final StringProperty coreEngine =
+            new SimpleStringProperty(this, PROPERTY_CORE_ENGINE, DEFAULT_CORE_ENGINE);
+
+    /// Returns the selected launcher core engine property.
+    public StringProperty coreEngineProperty() {
+        return coreEngine;
+    }
+
     /// The default game setting preset ID.
     @SerializedName(PROPERTY_DEFAULT_GAME_SETTINGS_PRESET)
     private final ObjectProperty<@Nullable GameSettingsPresetID> defaultGameSettingsPreset =
