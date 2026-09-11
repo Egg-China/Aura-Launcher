@@ -66,14 +66,19 @@ user-driven migration channel is feasible without any format conversion:
    travel inside `mmc-pack.json`, so Fabric/Forge/NeoForge/Quilt instances
    re-resolve on the AuraCore side.
 
-Current gaps, in priority order:
+Channel status:
 
-- **No import surface in the native UIs** — the bridge command exists, but the
-  Modern UI and Qt runtime still need an import entry (path/URL input plus task
-  polling). This is the recommended next increment.
-- **Export requires the JavaFX wizard** — a future `core.instance.export.multimc`
-  bridge command could wrap the same export task headlessly so the native UIs
-  can drive the whole channel.
+- **Export** — headless through `core.instance.export.multimc` (wraps
+  `MultiMCModpackExportTask` with an empty whitelist, so everything outside the
+  standard blacklist travels; all instance overrides default to off and AuraCore
+  applies its own defaults). The JavaFX export wizard remains available for
+  curated whitelists. The Modern UI exposes a per-instance export dialog under
+  the HMCL engine.
+- **Import** — the Modern UI exposes an import dialog (archive path or URL,
+  derived name, optional group) that drives `core.auracore.instance.import`
+  with task polling under the AuraCore engine.
+- **Qt runtime** — still snapshot-only; the import/export bridge commands await
+  a Qt-side surface.
 - **No automatic bulk migration** — intentional. Engine switching stays an
   explicit, reversible, per-instance user action; nothing moves accounts or
   instances without consent.
@@ -86,6 +91,8 @@ Current gaps, in priority order:
   report per-key outcomes.
 - `core.instance.launch` — launches through the backend when the AuraCore
   engine is selected, returning the backend task id.
+- `core.instance.export.multimc` — exports one launcher-side instance as a
+  MultiMC modpack archive (`id`, `output`, optional `name`).
 - `core.auracore.instance.create` — create a vanilla instance (`name`,
   `version`, optional `group`).
 - `core.auracore.instance.list` — list the backend's own instances; native

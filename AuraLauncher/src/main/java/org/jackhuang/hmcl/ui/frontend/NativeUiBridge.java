@@ -26,6 +26,8 @@ import org.jackhuang.hmcl.game.GameInstanceID;
 import org.jackhuang.hmcl.game.GameInstanceManifest;
 import org.jackhuang.hmcl.game.GameInstancePatch;
 import org.jackhuang.hmcl.game.HMCLGameRepository;
+import org.jackhuang.hmcl.modpack.multimc.MultiMCInstanceConfiguration;
+import org.jackhuang.hmcl.modpack.multimc.MultiMCModpackExportTask;
 import org.jackhuang.hmcl.plugin.PluginUIRegistry;
 import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
 import org.jackhuang.hmcl.plugin.ui.frontend.process.UiFrontendCommandHandler;
@@ -33,6 +35,7 @@ import org.jackhuang.hmcl.setting.Accounts;
 import org.jackhuang.hmcl.setting.DownloadSource;
 import org.jackhuang.hmcl.setting.GameDirectoryManager;
 import org.jackhuang.hmcl.setting.ProxyType;
+import org.jackhuang.hmcl.task.TaskExecutor;
 import org.jackhuang.hmcl.ui.FXUtils;
 import org.jackhuang.hmcl.ui.instances.Instances;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -100,6 +103,8 @@ public final class NativeUiBridge {
                 return launchInstance(params);
             case "core.plugin.action":
                 return runPluginAction(params);
+            case "core.instance.export.multimc":
+                return exportInstanceAsMultiMc(params);
             case "core.auracore.status":
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
@@ -835,6 +840,47 @@ public final class NativeUiBridge {
             return bool.value();
         }
         throw new IllegalArgumentException("Settings key " + key + " requires a boolean value");
+    }
+
+    /// Exports one launcher instance as a MultiMC modpack archive.
+    ///
+    /// @param params command parameters carrying `id`, `output`, and optional `name`
+    /// @return asynchronous reply carrying the export outcome
+    private static CompletionStage<UiFrontendCommandHandler.Reply> exportInstanceAsMultiMc(BridgeValue params) {
+        final GameInstanceID instanceId = extractInstanceId(params);
+        final String output = extractStringParameter(params, "output");
+        final String displayName = optionalStringParameter(params, "name");
+        return CompletableFuture.supplyAsync(() -> {
+            HMCLGameRepository repository = GameDirectoryManager.getSelectedRepository();
+            MultiMCModpackExportTask export = new MultiMCModpackExportTask(
+                    repository,
+                    instanceId,
+                    List.of(),
+                    new MultiMCInstanceConfiguration(
+                            "OneSix",
+                            displayName == null ? instanceId.id() : displayName,
+                            null, null, null, null, null, null, null, null,
+                            false, null, null, null, null, false, true, false,
+                            false, false, false, false, false, false, null),
+                    Path.of(output));
+            final TaskExecutor executor = export.executor();
+            final boolean succeeded = executor.test();
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            if (succeeded) {
+                fields.put("exported", BridgeValue.bool(true));
+                fields.put("output", BridgeValue.string(output));
+            } else {
+                final Exception failure = executor.getException();
+                fields.put("error", BridgeValue.string(failure == null
+                        ? "MultiMC export failed for " + instanceId.id()
+                        : String.valueOf(failure)));
+            }
+            return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+        }).exceptionally(failure -> {
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+            return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+        });
     }
 
     /// Selects one instance after extracting its identifier.
