@@ -51,6 +51,33 @@ below:
 
 System-proxy mode has no AuraCore equivalent and is skipped.
 
+## Moving instances between engines (evaluation)
+
+Both sides already speak the MultiMC modpack format, so an explicit,
+user-driven migration channel is feasible without any format conversion:
+
+1. In the built-in JavaFX interface, open an instance and export it as a
+   **MultiMC modpack** (`MultiMCModpackExportTask`) — this produces the zip
+   layout `instance.cfg` + `mmc-pack.json` + `overrides/` that AuraCore's
+   `InstanceImportTask` detects natively.
+2. Switch the launcher core to AuraCore and import the archive through
+   `core.auracore.instance.import` (`source` path or URL, display `name`).
+3. Mods, configs, and saves travel inside `overrides/`; the loader components
+   travel inside `mmc-pack.json`, so Fabric/Forge/NeoForge/Quilt instances
+   re-resolve on the AuraCore side.
+
+Current gaps, in priority order:
+
+- **No import surface in the native UIs** — the bridge command exists, but the
+  Modern UI and Qt runtime still need an import entry (path/URL input plus task
+  polling). This is the recommended next increment.
+- **Export requires the JavaFX wizard** — a future `core.instance.export.multimc`
+  bridge command could wrap the same export task headlessly so the native UIs
+  can drive the whole channel.
+- **No automatic bulk migration** — intentional. Engine switching stays an
+  explicit, reversible, per-instance user action; nothing moves accounts or
+  instances without consent.
+
 ## Bridge commands
 
 - `core.auracore.status` — engine selection, library path, backend state, and
