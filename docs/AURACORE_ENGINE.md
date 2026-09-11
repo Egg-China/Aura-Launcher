@@ -46,6 +46,8 @@ System-proxy mode has no AuraCore equivalent and is skipped.
   engine is selected, returning the backend task id.
 - `core.auracore.instance.create` — create a vanilla instance (`name`,
   `version`, optional `group`).
+- `core.auracore.instance.list` — list the backend's own instances; native
+  UIs use this instead of the HMCL snapshot while AuraCore is selected.
 - `core.auracore.instance.rename` / `group` / `icon` / `delete` — edit and
   remove instances.
 - `core.auracore.instance.export` / `import` — MultiMC-format archive round

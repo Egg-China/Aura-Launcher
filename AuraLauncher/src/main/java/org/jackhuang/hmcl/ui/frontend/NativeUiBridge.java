@@ -111,6 +111,8 @@ public final class NativeUiBridge {
                 return iconAuraCoreInstance(params);
             case "core.auracore.instance.delete":
                 return deleteAuraCoreInstance(params);
+            case "core.auracore.instance.list":
+                return listAuraCoreInstances();
             case "core.auracore.task.status":
                 return auraCoreTaskStatus(params);
             case "core.auracore.instance.export":
@@ -228,6 +230,15 @@ public final class NativeUiBridge {
                     fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
                     return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
                 });
+    }
+
+    /// Lists AuraCore backend instances for native-engine frontends.
+    ///
+    /// @return asynchronous reply carrying the backend instance array
+    private static CompletionStage<UiFrontendCommandHandler.Reply> listAuraCoreInstances() {
+        return AuraCoreEngineManager.getInstance().start().listInstances()
+                .thenApply(instances -> UiFrontendCommandHandler.Reply.result(toBridgeValue(instances)))
+                .exceptionally(failure -> auraCoreError(failure.getMessage()));
     }
 
     /// Lists AuraCore accounts when the native engine is selected.
