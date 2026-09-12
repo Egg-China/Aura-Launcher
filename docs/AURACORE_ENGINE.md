@@ -100,9 +100,10 @@ Channel status:
   outside the standard blacklist, while a present array must be non-empty and
   valid).
 - `core.instance.export.files.list` — lists one wizard-compatible selection
-  tree level (`id`, optional `path`) for native curated-export UIs, returning
-  `{path, entries, truncated}` with hidden entries filtered out; levels beyond
-  4096 entries are explicitly truncated.
+  tree level (`id`, optional `path`, optional opaque `token`) for native
+  curated-export UIs, returning `{path, token, entries, truncated}` with hidden
+  entries filtered out, symlink- and junction-safe containment, and bounded
+  scanning; levels beyond 4096 entries are explicitly truncated.
 - `core.auracore.instance.create` — create a vanilla instance (`name`,
   `version`, optional `group`).
 - `core.auracore.instance.list` — list the backend's own instances; native

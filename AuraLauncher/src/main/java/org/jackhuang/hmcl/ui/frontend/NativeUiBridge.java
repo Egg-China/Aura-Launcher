@@ -77,6 +77,9 @@ public final class NativeUiBridge {
     /// Maximum entries returned by one export file-listing level.
     private static final int MAX_EXPORT_LIST_ENTRIES = 4096;
 
+    /// Hard ceiling of entries materialized while scanning one listing level.
+    private static final int MAX_EXPORT_LIST_SCAN = MAX_EXPORT_LIST_ENTRIES * 2;
+
     /// Maximum accepted export whitelist paths in one command.
     private static final int MAX_EXPORT_WHITELIST_ENTRIES = BridgeValue.MAX_TOTAL_VALUES;
 
@@ -978,6 +981,7 @@ public final class NativeUiBridge {
     private static CompletionStage<UiFrontendCommandHandler.Reply> listInstanceExportFiles(BridgeValue params) {
         final GameInstanceID instanceId = extractInstanceId(params);
         final @Nullable String requestedPath = optionalStringParameter(params, "path");
+        final @Nullable String token = optionalStringParameter(params, "token");
         final String relativePath = requestedPath == null ? "" : requestedPath;
         return CompletableFuture.supplyAsync(() -> {
             HMCLGameRepository repository = GameDirectoryManager.getSelectedRepository();
@@ -995,7 +999,7 @@ public final class NativeUiBridge {
             } catch (IOException failure) {
                 throw new IllegalArgumentException("Failed to list export files: " + failure.getMessage(), failure);
             }
-            return UiFrontendCommandHandler.Reply.result(exportFileListingValue(relativePath, listing));
+            return UiFrontendCommandHandler.Reply.result(exportFileListingValue(relativePath, listing, token));
         }).exceptionally(failure -> {
             Map<String, BridgeValue> fields = new LinkedHashMap<>();
             fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
@@ -1007,8 +1011,10 @@ public final class NativeUiBridge {
     ///
     /// @param relativePath echoed forward-slash request path
     /// @param listing bounded listing result
-    /// @return bridge value carrying `{path, entries, truncated}`
-    private static BridgeValue exportFileListingValue(String relativePath, ExportFileListing listing) {
+    /// @param token optional caller correlation token echoed back verbatim
+    /// @return bridge value carrying `{path, token, entries, truncated}`
+    private static BridgeValue exportFileListingValue(
+            String relativePath, ExportFileListing listing, @Nullable String token) {
         List<BridgeValue> entries = new ArrayList<>();
         for (ExportFileEntry entry : listing.entries()) {
             Map<String, BridgeValue> fields = new LinkedHashMap<>();
@@ -1020,6 +1026,9 @@ public final class NativeUiBridge {
         }
         Map<String, BridgeValue> result = new LinkedHashMap<>();
         result.put("path", BridgeValue.string(relativePath));
+        if (token != null) {
+            result.put("token", BridgeValue.string(token));
+        }
         result.put("entries", BridgeValue.array(List.copyOf(entries)));
         result.put("truncated", BridgeValue.bool(listing.truncated()));
         return BridgeValue.map(result);
@@ -1044,6 +1053,17 @@ public final class NativeUiBridge {
         if (!resolved.normalize().startsWith(normalizedRoot)) {
             throw new IllegalArgumentException("Export path escapes the instance directory: " + relativePath);
         }
+        // Real-path containment closes the intermediate symlink and NTFS-junction escape that
+        // lexical checks miss; the remaining check-to-open race requires a local racing process.
+        try {
+            if (!resolved.toRealPath().startsWith(normalizedRoot.toRealPath())) {
+                throw new IllegalArgumentException(
+                        "Export path escapes the instance directory: " + relativePath);
+            }
+        } catch (IOException failure) {
+            throw new IllegalArgumentException(
+                    "Export path is not readable: " + relativePath, failure);
+        }
         return resolved;
     }
 
@@ -1059,6 +1079,7 @@ public final class NativeUiBridge {
             Path directory, String relativePath, GameInstanceID instanceId, int limit) throws IOException {
         int depth = relativePath.isBlank() ? 1 : relativePath.split("/", -1).length + 1;
         List<ExportFileEntry> entries = new ArrayList<>();
+        boolean truncated = false;
         try (Stream<Path> stream = Files.list(directory)) {
             for (Path child : (Iterable<Path>) stream::iterator) {
                 boolean isDirectory = Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS);
@@ -1071,6 +1092,10 @@ public final class NativeUiBridge {
                 }
                 entries.add(new ExportFileEntry(
                         name, childPath, isDirectory, state == ModAdviser.ModSuggestion.SUGGESTED));
+                if (entries.size() >= MAX_EXPORT_LIST_SCAN) {
+                    truncated = true;
+                    break;
+                }
             }
         }
         entries.sort((left, right) -> {
@@ -1079,7 +1104,7 @@ public final class NativeUiBridge {
             }
             return left.name().compareToIgnoreCase(right.name());
         });
-        boolean truncated = entries.size() > limit;
+        truncated = truncated || entries.size() > limit;
         return new ExportFileListing(
                 List.copyOf(entries.subList(0, Math.min(entries.size(), limit))), truncated);
     }

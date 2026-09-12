@@ -21,6 +21,7 @@ import org.jackhuang.hmcl.game.GameInstanceID;
 import org.jackhuang.hmcl.modpack.ModAdviser;
 import org.jackhuang.hmcl.plugin.bridge.BridgeValue;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -62,7 +63,8 @@ public class NativeUiBridgeTest {
 
     /// Verifies nested forward-slash paths resolve inside the instance run directory.
     @Test
-    public void resolvesNestedExportPaths(@TempDir Path root) {
+    public void resolvesNestedExportPaths(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("mods/config"));
         Path resolved = NativeUiBridge.resolveExportDirectory(root, "mods/config");
         assertEquals(root.toAbsolutePath().normalize().resolve("mods").resolve("config"), resolved);
     }
@@ -165,6 +167,36 @@ public class NativeUiBridgeTest {
                 NativeUiBridge.listExportFileEntries(root, "", instanceId, 3);
         assertEquals(3, listing.entries().size());
         assertTrue(listing.truncated());
+    }
+
+    /// Verifies symlinked intermediates cannot redirect listings outside the instance.
+    @Test
+    public void rejectsSymlinkedExportEscapes(@TempDir Path root, @TempDir Path outside) throws IOException {
+        Path target = Files.createDirectory(outside.resolve("Documents"));
+        try {
+            Files.createSymbolicLink(root.resolve("link"), target);
+        } catch (IOException | UnsupportedOperationException unavailable) {
+            Assumptions.abort("symbolic links are unavailable on this host");
+            return;
+        }
+        assertThrows(IllegalArgumentException.class,
+                () -> NativeUiBridge.resolveExportDirectory(root, "link"));
+        assertThrows(IllegalArgumentException.class,
+                () -> NativeUiBridge.resolveExportDirectory(root, "link/Documents"));
+    }
+
+    /// Verifies scanning stays bounded when a level vastly exceeds the listing limit.
+    @Test
+    public void boundsOversizedScans(@TempDir Path root) throws IOException {
+        GameInstanceID instanceId = new GameInstanceID("1.20.1-test");
+        for (int index = 0; index < 12; index++) {
+            Files.writeString(root.resolve(String.format("%02d.txt", index)), "x");
+        }
+        NativeUiBridge.ExportFileListing listing =
+                NativeUiBridge.listExportFileEntries(root, "", instanceId, 3);
+        assertEquals(3, listing.entries().size());
+        assertTrue(listing.truncated());
+        assertEquals("00.txt", listing.entries().get(0).name());
     }
 
     /// Verifies suggestion helpers stay directly testable for wizard-parity regressions.
