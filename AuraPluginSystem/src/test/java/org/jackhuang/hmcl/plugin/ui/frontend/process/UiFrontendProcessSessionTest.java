@@ -929,12 +929,15 @@ final class UiFrontendProcessSessionTest {
         return future.toCompletableFuture().get(5, TimeUnit.SECONDS);
     }
 
-    /// Extracts the stable session failure from an exceptional request future.
+    /// Awaits the stable session failure from an exceptional request future.
     ///
-    /// @param future failed future
+    /// <p>The bounded wait keeps deadline-driven failures from racing the test's cleanup path.</p>
+    ///
+    /// @param future request future that must fail
     /// @return session exception
     private static UiFrontendProcessException futureFailure(CompletableFuture<BridgeValue> future) {
-        CompletionException completion = assertThrows(CompletionException.class, future::join);
+        CompletionException completion = assertThrows(CompletionException.class,
+                () -> future.orTimeout(5, TimeUnit.SECONDS).join());
         return assertInstanceOf(UiFrontendProcessException.class, completion.getCause());
     }
 
