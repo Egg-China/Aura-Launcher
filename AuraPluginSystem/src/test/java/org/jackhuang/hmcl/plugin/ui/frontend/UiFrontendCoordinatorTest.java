@@ -185,7 +185,7 @@ public final class UiFrontendCoordinatorTest {
         BridgeValue.MapValue redacted = (BridgeValue.MapValue) launcher.snapshot;
         BridgeValue.ArrayValue accounts = (BridgeValue.ArrayValue) redacted.values().get("accounts");
         assertEquals(5, accounts.values().size());
-        BridgeValue.MapValue account = (BridgeValue.MapValue) accounts.values().getFirst();
+        BridgeValue.MapValue account = (BridgeValue.MapValue) accounts.values().get(0);
         assertTrue(account.values().containsKey("id"));
         assertTrue(account.values().containsKey("uuid"));
         assertTrue(account.values().containsKey("skinUrl"));
@@ -340,7 +340,7 @@ public final class UiFrontendCoordinatorTest {
         BridgeValue.ArrayValue instances = (BridgeValue.ArrayValue) launcher.handler
                 .handle("core.auracore.instance.list", BridgeValue.nullValue())
                 .toCompletableFuture().join().value();
-        BridgeValue.MapValue instance = (BridgeValue.MapValue) instances.values().getFirst();
+        BridgeValue.MapValue instance = (BridgeValue.MapValue) instances.values().get(0);
         assertFalse(instance.values().containsKey("dir"));
         assertTrue(instance.values().containsKey("id"));
 
@@ -517,7 +517,7 @@ public final class UiFrontendCoordinatorTest {
         BridgeValue.ArrayValue instances = (BridgeValue.ArrayValue) launcher.handler
                 .handle("core.auracore.instance.list", BridgeValue.nullValue())
                 .toCompletableFuture().join().value();
-        BridgeValue.MapValue instance = (BridgeValue.MapValue) instances.values().getFirst();
+        BridgeValue.MapValue instance = (BridgeValue.MapValue) instances.values().get(0);
         assertTrue(instance.values().containsKey("dir"));
 
         coordinator.stop();
