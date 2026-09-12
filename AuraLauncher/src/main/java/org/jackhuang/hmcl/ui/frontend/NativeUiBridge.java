@@ -43,6 +43,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -493,14 +494,19 @@ public final class NativeUiBridge {
 
     /// Validates one forward-slash relative export path.
     ///
+    /// Backslash components are rejected only where they act as separators; on Unix-like
+    /// hosts they remain legal file-name characters emitted by the listing command.
+    ///
     /// @param path candidate relative path using `/` separators only
     /// @throws IllegalArgumentException when the path is blank, absolute, or contains an empty,
-    ///         `.`, `..`, backslash, or NUL component
+    ///         `.`, `..`, NUL, or platform-separator component
     static void validateRelativeExportPath(String path) {
         if (path.isBlank()) {
             throw new IllegalArgumentException("Export path must not be blank");
         }
-        if (path.indexOf('\0') >= 0 || path.contains("\\") || path.startsWith("/")) {
+        boolean windows = File.separatorChar == '\\';
+        if (path.indexOf('\0') >= 0 || path.startsWith("/")
+                || (windows && path.contains("\\"))) {
             throw new IllegalArgumentException("Export path must use relative forward-slash components: " + path);
         }
         for (String component : path.split("/", -1)) {

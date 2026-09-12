@@ -24,6 +24,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,9 +70,16 @@ public class NativeUiBridgeTest {
     /// Verifies escaping and malformed export paths are rejected before any filesystem access.
     @Test
     public void rejectsEscapingExportPaths(@TempDir Path root) {
-        for (String path : new String[]{"..", "a/..", "a/../b", "/absolute", "a\\b", "C:", "a//b", "a/."}) {
+        for (String path : new String[]{"..", "a/..", "a/../b", "/absolute", "a//b", "a/."}) {
             assertThrows(IllegalArgumentException.class,
                     () -> NativeUiBridge.resolveExportDirectory(root, path), path);
+        }
+        if (File.separatorChar == '\\') {
+            // Drive-relative and backslash components only act as separators on Windows.
+            for (String path : new String[]{"a\\b", "C:"}) {
+                assertThrows(IllegalArgumentException.class,
+                        () -> NativeUiBridge.resolveExportDirectory(root, path), path);
+            }
         }
     }
 
@@ -101,7 +109,7 @@ public class NativeUiBridgeTest {
                         BridgeValue.string("mods"), BridgeValue.string("")))))));
         assertThrows(IllegalArgumentException.class, () -> NativeUiBridge.optionalExportWhitelist(
                 BridgeValue.map(Map.of("whitelist", BridgeValue.array(List.of(
-                        BridgeValue.string("mods\\A.jar")))))));
+                        BridgeValue.string("/mods/A.jar")))))));
         assertThrows(IllegalArgumentException.class, () -> NativeUiBridge.optionalExportWhitelist(
                 BridgeValue.map(Map.of("whitelist", BridgeValue.array(List.of(
                         BridgeValue.integer(1)))))));
