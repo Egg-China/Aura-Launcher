@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -402,6 +403,79 @@ final class UiFrontendProcessSessionTest {
         } finally {
             session.close();
         }
+    }
+
+    /// Delegates the Phase 4B AuraCore read-and-login subset through the real transport.
+    @Test
+    void delegatesAuraCoreCommandsThroughTransportAllowlist() throws Exception {
+        List<String> methods = List.of(
+                "core.auracore.status",
+                "core.auracore.instance.list",
+                "core.auracore.task.status",
+                "core.auracore.accounts.list",
+                "core.auracore.auth.msa.begin",
+                "core.auracore.auth.msa.info"
+        );
+        CopyOnWriteArrayList<String> handled = new CopyOnWriteArrayList<>();
+        CountDownLatch handledCount = new CountDownLatch(methods.size());
+        ScriptedProcess process = new ScriptedProcess(child -> {
+            child.completeHandshake();
+            for (int index = 0; index < methods.size(); index++) {
+                String method = methods.get(index);
+                child.sendRequest(4L + index * 2L, method, BridgeValue.string(method));
+                UiFrontendMessage.Result reply = assertInstanceOf(
+                        UiFrontendMessage.Result.class, child.read());
+                assertEquals(4L + index * 2L, reply.requestId());
+                assertEquals(BridgeValue.string(method), reply.value());
+            }
+            child.awaitShutdown();
+        });
+        UiFrontendCommandHandler handler = (method, params) -> {
+            handled.add(method);
+            handledCount.countDown();
+            return CompletableFuture.completedFuture(UiFrontendCommandHandler.Reply.result(params));
+        };
+        UiFrontendProcessSession session = UiFrontendProcessSession.start(executable(), temporaryDirectory,
+                BridgeValue.nullValue(), handler, builder -> process,
+                timing(Duration.ofSeconds(1), Duration.ofMillis(500)));
+        try {
+            assertTrue(handledCount.await(1, TimeUnit.SECONDS));
+        } finally {
+            session.close();
+        }
+        assertTrue(process.scriptFinished.await(1, TimeUnit.SECONDS));
+        assertEquals(methods, handled);
+    }
+
+    /// Rejects account mutations before they escape the intentionally narrow transport allowlist.
+    @Test
+    void rejectsAuraCoreAccountMutationsAtTransportAllowlist() throws Exception {
+        List<String> blockedMethods = List.of(
+                "core.auracore.accounts.add-offline",
+                "core.auracore.accounts.remove",
+                "core.auracore.accounts.set-default"
+        );
+        CopyOnWriteArrayList<String> handled = new CopyOnWriteArrayList<>();
+        for (String method : blockedMethods) {
+            ScriptedProcess process = new ScriptedProcess(child -> {
+                child.completeHandshake();
+                child.sendRequest(4L, method, BridgeValue.nullValue());
+                child.awaitShutdown();
+            });
+            UiFrontendCommandHandler handler = (candidate, params) -> {
+                handled.add(candidate);
+                return CompletableFuture.completedFuture(UiFrontendCommandHandler.Reply.result(
+                        BridgeValue.nullValue()));
+            };
+            UiFrontendProcessSession session = UiFrontendProcessSession.start(
+                    executable(), temporaryDirectory, BridgeValue.nullValue(), handler,
+                    builder -> process, timing(Duration.ofSeconds(1), Duration.ofMillis(200)));
+            UiFrontendProcessSession.Termination termination = await(session.termination());
+            @Nullable UiFrontendProcessException failure = termination.failure();
+            assertNotNull(failure);
+            assertEquals(UiFrontendProcessException.Category.PROTOCOL, failure.category());
+        }
+        assertTrue(handled.isEmpty());
     }
 
     /// Flushes a successful child reply before invoking its launcher-owned after-response action.

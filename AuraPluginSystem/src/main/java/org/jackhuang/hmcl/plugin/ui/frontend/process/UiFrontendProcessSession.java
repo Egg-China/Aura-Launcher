@@ -74,7 +74,9 @@ public final class UiFrontendProcessSession implements AutoCloseable, UiFrontend
     /// Fixed child-to-JVM command methods delegated to the launcher handler.
     private static final @Unmodifiable Set<String> INCOMING_METHODS = Set.of(
             "core.snapshot.get", "core.instance.select", "core.instance.launch", "core.account.select",
-            "core.asset.get", "core.ui.use-javafx", "core.app.shutdown");
+            "core.asset.get", "core.ui.use-javafx", "core.app.shutdown", "core.auracore.status",
+            "core.auracore.instance.list", "core.auracore.task.status", "core.auracore.accounts.list",
+            "core.auracore.auth.msa.begin", "core.auracore.auth.msa.info");
 
     /// Exact ordinary inherited environment keys.
     private static final @Unmodifiable Set<String> ENVIRONMENT_KEYS = Set.of(

@@ -119,3 +119,29 @@ Channel status:
 - `core.auracore.accounts.list` / `add-offline` / `remove` / `set-default` —
   account management.
 - `core.auracore.auth.msa.begin` / `msa.info` — Microsoft device-code login.
+### Native UI transport gating
+
+The supervised native UI transport intentionally exposes only the AuraCore display and account
+commands needed by the Phase 4B account suggestion flow:
+
+- `core.auracore.status`
+- `core.auracore.instance.list`
+- `core.auracore.task.status`
+- `core.auracore.accounts.list`
+- `core.auracore.auth.msa.begin`
+- `core.auracore.auth.msa.info`
+
+Account reads and Microsoft authentication require the plugin `account` grant. AuraCore snapshots
+with that grant expose only Microsoft account `type` and `profileName` suggestions (wire field `username`), even though HMCL
+UI snapshots may carry the fuller token-free display record. Without the `filesystem` grant, status
+and instance listings omit local paths, task diagnostics are reduced to scalar safe fields, nested
+safe-field values and backend errors are replaced with generic messages, and launcher snapshots omit
+unauthorized `commonDirectory`.
+Proxy credentials are always omitted because the Modern UI does not consume them.
+
+Other bridge methods implemented by `NativeUiBridge` remain deliberately unreachable through this
+transport until their filesystem, network, launcher-core, and destructive-action permission cohort
+is defined. The Modern UI mirrors this method set before invoking Tauri so an unavailable action
+returns a normal UI error instead of terminating its supervised protocol session. In particular,
+instance mutation/import/export, settings writes, migration, and account mutations must not be
+enabled merely by adding method names to the transport allowlist.
