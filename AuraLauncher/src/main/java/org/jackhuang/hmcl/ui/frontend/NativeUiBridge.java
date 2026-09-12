@@ -39,6 +39,7 @@ import org.jackhuang.hmcl.task.TaskExecutor;
 import org.jackhuang.hmcl.ui.FXUtils;
 import org.jackhuang.hmcl.ui.instances.Instances;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
@@ -454,6 +455,7 @@ public final class NativeUiBridge {
     /// @param params command parameters
     /// @param key parameter key
     /// @return the immutable string list, empty when absent or invalid
+    @Unmodifiable
     private static List<String> extractOptionalStringList(BridgeValue params, String key) {
         if (!(params instanceof BridgeValue.MapValue map)
                 || !(map.values().get(key) instanceof BridgeValue.ArrayValue array)) {
@@ -868,8 +870,8 @@ public final class NativeUiBridge {
     private static CompletionStage<UiFrontendCommandHandler.Reply> exportInstanceAsMultiMc(BridgeValue params) {
         final GameInstanceID instanceId = extractInstanceId(params);
         final String output = extractStringParameter(params, "output");
-        final String displayName = optionalStringParameter(params, "name");
-        final List<String> whitelist = extractOptionalStringList(params, "whitelist");
+        final @Nullable String displayName = optionalStringParameter(params, "name");
+        final @Unmodifiable List<String> whitelist = extractOptionalStringList(params, "whitelist");
         return CompletableFuture.supplyAsync(() -> {
             HMCLGameRepository repository = GameDirectoryManager.getSelectedRepository();
             MultiMCModpackExportTask export = new MultiMCModpackExportTask(
