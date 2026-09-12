@@ -26,6 +26,7 @@ import org.jackhuang.hmcl.game.GameInstanceID;
 import org.jackhuang.hmcl.game.GameInstanceManifest;
 import org.jackhuang.hmcl.game.GameInstancePatch;
 import org.jackhuang.hmcl.game.HMCLGameRepository;
+import org.jackhuang.hmcl.modpack.ModAdviser;
 import org.jackhuang.hmcl.modpack.multimc.MultiMCInstanceConfiguration;
 import org.jackhuang.hmcl.modpack.multimc.MultiMCModpackExportTask;
 import org.jackhuang.hmcl.plugin.PluginUIRegistry;
@@ -44,6 +45,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -70,6 +72,12 @@ public final class NativeUiBridge {
     /// Formatter rendering disk timestamps in the launcher time zone.
     private static final DateTimeFormatter DISK_TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
+
+    /// Maximum entries returned by one export file-listing level.
+    private static final int MAX_EXPORT_LIST_ENTRIES = 4096;
+
+    /// Maximum accepted export whitelist paths in one command.
+    private static final int MAX_EXPORT_WHITELIST_ENTRIES = BridgeValue.MAX_TOTAL_VALUES;
 
     /// Prevents instantiation.
     private NativeUiBridge() {
@@ -106,6 +114,8 @@ public final class NativeUiBridge {
                 return runPluginAction(params);
             case "core.instance.export.multimc":
                 return exportInstanceAsMultiMc(params);
+            case "core.instance.export.files.list":
+                return listInstanceExportFiles(params);
             case "core.auracore.status":
                 return CompletableFuture.completedFuture(
                         UiFrontendCommandHandler.Reply.result(buildAuraCoreStatus()));
@@ -450,24 +460,54 @@ public final class NativeUiBridge {
                 .exceptionally(failure -> auraCoreError(failure.getMessage()));
     }
 
-    /// Extracts an optional array-of-strings parameter.
+    /// Extracts one optional strict export whitelist.
+    ///
+    /// An absent parameter keeps full-export semantics. A present array must contain at least
+    /// one valid forward-slash relative path; invalid selections fail instead of silently
+    /// widening the export to everything outside the blacklist.
     ///
     /// @param params command parameters
-    /// @param key parameter key
-    /// @return the immutable string list, empty when absent or invalid
-    @Unmodifiable
-    private static List<String> extractOptionalStringList(BridgeValue params, String key) {
+    /// @return validated immutable paths, or `null` when the parameter is absent
+    /// @throws IllegalArgumentException when a present whitelist is empty, oversized, or malformed
+    static @Nullable @Unmodifiable List<String> optionalExportWhitelist(BridgeValue params) {
         if (!(params instanceof BridgeValue.MapValue map)
-                || !(map.values().get(key) instanceof BridgeValue.ArrayValue array)) {
-            return List.of();
+                || !(map.values().get("whitelist") instanceof BridgeValue.ArrayValue array)) {
+            return null;
+        }
+        if (array.values().isEmpty()) {
+            throw new IllegalArgumentException("whitelist must select at least one path when provided");
+        }
+        if (array.values().size() > MAX_EXPORT_WHITELIST_ENTRIES) {
+            throw new IllegalArgumentException("whitelist exceeds " + MAX_EXPORT_WHITELIST_ENTRIES + " entries");
         }
         List<String> values = new ArrayList<>();
         for (BridgeValue entry : array.values()) {
-            if (entry instanceof BridgeValue.StringValue text && !text.value().isBlank()) {
-                values.add(text.value());
+            if (!(entry instanceof BridgeValue.StringValue text)) {
+                throw new IllegalArgumentException("whitelist entries must be strings");
             }
+            validateRelativeExportPath(text.value());
+            values.add(text.value());
         }
         return List.copyOf(values);
+    }
+
+    /// Validates one forward-slash relative export path.
+    ///
+    /// @param path candidate relative path using `/` separators only
+    /// @throws IllegalArgumentException when the path is blank, absolute, or contains an empty,
+    ///         `.`, `..`, backslash, or NUL component
+    static void validateRelativeExportPath(String path) {
+        if (path.isBlank()) {
+            throw new IllegalArgumentException("Export path must not be blank");
+        }
+        if (path.indexOf('\0') >= 0 || path.contains("\\") || path.startsWith("/")) {
+            throw new IllegalArgumentException("Export path must use relative forward-slash components: " + path);
+        }
+        for (String component : path.split("/", -1)) {
+            if (component.isEmpty() || ".".equals(component) || "..".equals(component)) {
+                throw new IllegalArgumentException("Export path contains an invalid component: " + path);
+            }
+        }
     }
 
     /// Extracts one optional string parameter.
@@ -865,13 +905,14 @@ public final class NativeUiBridge {
 
     /// Exports one launcher instance as a MultiMC modpack archive.
     ///
-    /// @param params command parameters carrying `id`, `output`, and optional `name`
+    /// @param params command parameters carrying `id`, `output`, optional `name`, and an optional
+    ///         strict non-empty `whitelist` of forward-slash relative paths
     /// @return asynchronous reply carrying the export outcome
     private static CompletionStage<UiFrontendCommandHandler.Reply> exportInstanceAsMultiMc(BridgeValue params) {
         final GameInstanceID instanceId = extractInstanceId(params);
         final String output = extractStringParameter(params, "output");
         final @Nullable String displayName = optionalStringParameter(params, "name");
-        final @Unmodifiable List<String> whitelist = extractOptionalStringList(params, "whitelist");
+        final @Nullable @Unmodifiable List<String> whitelist = optionalExportWhitelist(params);
         return CompletableFuture.supplyAsync(() -> {
             HMCLGameRepository repository = GameDirectoryManager.getSelectedRepository();
             MultiMCModpackExportTask export = new MultiMCModpackExportTask(
@@ -903,6 +944,171 @@ public final class NativeUiBridge {
             fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
             return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
         });
+    }
+
+    /// One exportable instance-tree entry returned to native selection UIs.
+    ///
+    /// @param name display file name
+    /// @param path forward-slash path relative to the instance run directory
+    /// @param directory whether the entry is a real directory; symlinked directories stay files
+    /// @param suggested whether the export wizard rules preselect the entry
+    record ExportFileEntry(String name, String path, boolean directory, boolean suggested) {
+    }
+
+    /// One bounded export-tree listing level.
+    ///
+    /// @param entries sorted visible entries
+    /// @param truncated whether the level exceeded the listing limit
+    record ExportFileListing(@Unmodifiable List<ExportFileEntry> entries, boolean truncated) {
+    }
+
+    /// Lists one level of exportable instance files for a native selection tree.
+    ///
+    /// The listing mirrors the JavaFX export wizard's filtering and suggestion rules. Entries
+    /// outside the instance directory, unknown instances, and symlinked directories are rejected.
+    ///
+    /// @param params command parameters carrying `id` and optional `path`
+    /// @return asynchronous reply carrying `{path, entries, truncated}` or `{error}`
+    private static CompletionStage<UiFrontendCommandHandler.Reply> listInstanceExportFiles(BridgeValue params) {
+        final GameInstanceID instanceId = extractInstanceId(params);
+        final @Nullable String requestedPath = optionalStringParameter(params, "path");
+        final String relativePath = requestedPath == null ? "" : requestedPath;
+        return CompletableFuture.supplyAsync(() -> {
+            HMCLGameRepository repository = GameDirectoryManager.getSelectedRepository();
+            if (!repository.hasInstance(instanceId)) {
+                throw new IllegalArgumentException("Unknown instance " + instanceId.id());
+            }
+            Path runDirectory = repository.getRunDirectory(instanceId).toAbsolutePath().normalize();
+            Path directory = resolveExportDirectory(runDirectory, relativePath);
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IllegalArgumentException("Export selection path is not a directory: " + relativePath);
+            }
+            ExportFileListing listing;
+            try {
+                listing = listExportFileEntries(directory, relativePath, instanceId, MAX_EXPORT_LIST_ENTRIES);
+            } catch (IOException failure) {
+                throw new IllegalArgumentException("Failed to list export files: " + failure.getMessage(), failure);
+            }
+            return UiFrontendCommandHandler.Reply.result(exportFileListingValue(relativePath, listing));
+        }).exceptionally(failure -> {
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            fields.put("error", BridgeValue.string(String.valueOf(failure.getMessage())));
+            return UiFrontendCommandHandler.Reply.result(BridgeValue.map(fields));
+        });
+    }
+
+    /// Serializes one export-tree listing for the native bridge.
+    ///
+    /// @param relativePath echoed forward-slash request path
+    /// @param listing bounded listing result
+    /// @return bridge value carrying `{path, entries, truncated}`
+    private static BridgeValue exportFileListingValue(String relativePath, ExportFileListing listing) {
+        List<BridgeValue> entries = new ArrayList<>();
+        for (ExportFileEntry entry : listing.entries()) {
+            Map<String, BridgeValue> fields = new LinkedHashMap<>();
+            fields.put("name", BridgeValue.string(entry.name()));
+            fields.put("path", BridgeValue.string(entry.path()));
+            fields.put("directory", BridgeValue.bool(entry.directory()));
+            fields.put("suggested", BridgeValue.bool(entry.suggested()));
+            entries.add(BridgeValue.map(fields));
+        }
+        Map<String, BridgeValue> result = new LinkedHashMap<>();
+        result.put("path", BridgeValue.string(relativePath));
+        result.put("entries", BridgeValue.array(List.copyOf(entries)));
+        result.put("truncated", BridgeValue.bool(listing.truncated()));
+        return BridgeValue.map(result);
+    }
+
+    /// Resolves one forward-slash relative export path inside the instance run directory.
+    ///
+    /// @param root instance run directory
+    /// @param relativePath forward-slash relative path, blank for the root
+    /// @return lexically resolved path inside the normalized `root`
+    /// @throws IllegalArgumentException when the path escapes `root` or uses invalid components
+    static Path resolveExportDirectory(Path root, String relativePath) {
+        Path normalizedRoot = root.toAbsolutePath().normalize();
+        if (relativePath.isBlank()) {
+            return normalizedRoot;
+        }
+        validateRelativeExportPath(relativePath);
+        Path resolved = normalizedRoot;
+        for (String component : relativePath.split("/")) {
+            resolved = resolved.resolve(component);
+        }
+        if (!resolved.normalize().startsWith(normalizedRoot)) {
+            throw new IllegalArgumentException("Export path escapes the instance directory: " + relativePath);
+        }
+        return resolved;
+    }
+
+    /// Lists one bounded directory level for the export selection tree.
+    ///
+    /// @param directory existing non-symlinked directory to list
+    /// @param relativePath forward-slash path of `directory` relative to the run root
+    /// @param instanceId instance owning the tree
+    /// @param limit maximum entries returned before truncation
+    /// @return sorted entries with the truncation flag
+    /// @throws IOException when directory reading fails
+    static ExportFileListing listExportFileEntries(
+            Path directory, String relativePath, GameInstanceID instanceId, int limit) throws IOException {
+        int depth = relativePath.isBlank() ? 1 : relativePath.split("/", -1).length + 1;
+        List<ExportFileEntry> entries = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(directory)) {
+            for (Path child : (Iterable<Path>) stream::iterator) {
+                boolean isDirectory = Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS);
+                String name = child.getFileName().toString();
+                String childPath = relativePath.isBlank() ? name : relativePath + "/" + name;
+                ModAdviser.ModSuggestion state =
+                        exportEntrySuggestion(childPath, name, isDirectory, instanceId, depth);
+                if (state == ModAdviser.ModSuggestion.HIDDEN) {
+                    continue;
+                }
+                entries.add(new ExportFileEntry(
+                        name, childPath, isDirectory, state == ModAdviser.ModSuggestion.SUGGESTED));
+            }
+        }
+        entries.sort((left, right) -> {
+            if (left.directory() != right.directory()) {
+                return Boolean.compare(right.directory(), left.directory());
+            }
+            return left.name().compareToIgnoreCase(right.name());
+        });
+        boolean truncated = entries.size() > limit;
+        return new ExportFileListing(
+                List.copyOf(entries.subList(0, Math.min(entries.size(), limit))), truncated);
+    }
+
+    /// Computes the export wizard suggestion for one selection-tree entry.
+    ///
+    /// @param relativePath entry path relative to the instance run directory
+    /// @param name entry file name
+    /// @param isDirectory whether the entry is a real directory
+    /// @param instanceId instance owning the tree
+    /// @param depth entry depth below the run directory, `1` for direct children
+    /// @return the wizard suggestion used for hiding and preselection
+    static ModAdviser.ModSuggestion exportEntrySuggestion(
+            String relativePath, String name, boolean isDirectory, GameInstanceID instanceId, int depth) {
+        ModAdviser.ModSuggestion state =
+                ModAdviser.suggestMod(relativePath + (isDirectory ? "/" : ""), isDirectory);
+        if (isDirectory) {
+            if (name.equals(instanceId.id() + "-natives")
+                    || (depth == 1 && name.startsWith("natives-"))) {
+                state = ModAdviser.ModSuggestion.HIDDEN;
+            }
+        } else if (".DS_Store".equals(name) || "desktop.ini".equals(name) || "Thumbs.db".equals(name)
+                || name.startsWith("._") || stripExportExtension(name).equals(instanceId.id())) {
+            state = ModAdviser.ModSuggestion.HIDDEN;
+        }
+        return state;
+    }
+
+    /// Removes the final extension from one export file name.
+    ///
+    /// @param name candidate file name
+    /// @return the name without its final extension, matching the export wizard's hiding rule
+    private static String stripExportExtension(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
     }
 
     /// Selects one instance after extracting its identifier.

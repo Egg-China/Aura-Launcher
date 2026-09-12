@@ -69,16 +69,19 @@ user-driven migration channel is feasible without any format conversion:
 Channel status:
 
 - **Export** — headless through `core.instance.export.multimc` (wraps
-  `MultiMCModpackExportTask` with an empty whitelist, so everything outside the
-  standard blacklist travels; all instance overrides default to off and AuraCore
-  applies its own defaults). The JavaFX export wizard remains available for
-  curated whitelists. The Modern UI exposes a per-instance export dialog under
-  the HMCL engine.
+  `MultiMCModpackExportTask`; an absent whitelist exports everything outside the
+  standard blacklist, while a present whitelist must be a non-empty array of
+  exact forward-slash paths and invalid selections are rejected instead of
+  silently widening the export; all instance overrides default to off and
+  AuraCore applies its own defaults). Curated native selection is powered by
+  `core.instance.export.files.list`. The JavaFX export wizard also remains
+  available. The Modern UI exposes a per-instance export dialog under the HMCL
+  engine.
 - **Import** — the Modern UI exposes an import dialog (archive path or URL,
   derived name, optional group) that drives `core.auracore.instance.import`
   with task polling under the AuraCore engine.
-- **Qt runtime** — still snapshot-only; the import/export bridge commands await
-  a Qt-side surface.
+- **Qt runtime** — consumes backend state and exposes import/export dialogs
+  that drive the same bridge commands as the Modern UI.
 - **No automatic bulk migration** — intentional. Engine switching stays an
   explicit, reversible, per-instance user action; nothing moves accounts or
   instances without consent.
@@ -93,7 +96,13 @@ Channel status:
   engine is selected, returning the backend task id.
 - `core.instance.export.multimc` — exports one launcher-side instance as a
   MultiMC modpack archive (`id`, `output`, optional `name`, optional `whitelist`
-  array; an empty whitelist keeps every file outside the standard blacklist).
+  array of exact forward-slash paths; an absent whitelist keeps every file
+  outside the standard blacklist, while a present array must be non-empty and
+  valid).
+- `core.instance.export.files.list` — lists one wizard-compatible selection
+  tree level (`id`, optional `path`) for native curated-export UIs, returning
+  `{path, entries, truncated}` with hidden entries filtered out; levels beyond
+  4096 entries are explicitly truncated.
 - `core.auracore.instance.create` — create a vanilla instance (`name`,
   `version`, optional `group`).
 - `core.auracore.instance.list` — list the backend's own instances; native
